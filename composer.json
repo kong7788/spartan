@@ -1,0 +1,19 @@
+{
+    "name": "langshen/spartan",
+    "description": "the php common framework",
+    "type": "project",
+    "keywords": [
+        "framework",
+        "spartan"
+    ],
+    "license": "MIT License",
+    "authors": [
+        {
+            "name": "langshen",
+            "email": "langshen2008@qq.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.6.0"
+    }
+}
