@@ -147,7 +147,7 @@ class Controller{
         }else{
             $template = $template?$template:strtolower(__ACTION__);
         }
-        return APP_PATH.'View/'.$strModule.'/'.$template.C('TMPL_TEMPLATE_SUFFIX');
+        return APP_PATH.'View'.NS.$strModule.NS.$template.C('TMPL_TEMPLATE_SUFFIX');
     }
 
     /**

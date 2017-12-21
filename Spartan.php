@@ -17,17 +17,18 @@ class Spt {
      */
     public static function start($_arrConfig = []){
         error_reporting(E_ALL);
-        spl_autoload_register('Spt::autoLoad');//注册AUTOLOAD方法
-        set_error_handler('Spt::appError');//用户自定义的错误处理函数
-        set_exception_handler('Spt::appException');//用户自己的异常处理方法
-        register_shutdown_function('Spt::appShutdown');//脚本执行关闭
+        spl_autoload_register([__CLASS__,'autoLoad']);//注册AUTOLOAD方法
+        set_error_handler([__CLASS__,'appError']);//用户自定义的错误处理函数
+        set_exception_handler([__CLASS__,'appException']);//用户自己的异常处理方法
+        register_shutdown_function([__CLASS__,'appShutdown']);//脚本执行关闭
         version_compare(PHP_VERSION,'5.6','<') && die('You need to use version 5.6 or higher.');
-        !defined('APP_ROOT') && die('You need to defined "APP_ROOT" of you site root directory.');
-        substr(APP_ROOT,-1) != NS && die('"APP_ROOT" needs a band "'.NS.'" to end.');
+        (!isset($_arrConfig['APP_ROOT']) || !$_arrConfig['APP_ROOT']) && die('You need to configure site\'s variable "APP_ROOT".');
+        substr($_arrConfig['APP_ROOT'],-1) != NS && $_arrConfig['APP_ROOT'] .= NS;
         (!isset($_arrConfig['APP_NAME']) || !$_arrConfig['APP_NAME']) && die('You need to configure site\'s variable "APP_NAME".');
         (!isset($_arrConfig['LANG']) || !$_arrConfig['LANG']) && $_arrConfig['LANG'] = 'zh-cn';
         (!isset($_arrConfig['TIME_ZONE']) || !$_arrConfig['TIME_ZONE']) && $_arrConfig['TIME_ZONE'] = 'PRC';
         define('APP_NAME',ucfirst(strtolower($_arrConfig['APP_NAME'])));//项目名称
+        define('APP_ROOT',$_arrConfig['APP_ROOT']);//项目的根目录
         define('APP_PATH',APP_ROOT.APP_NAME.NS);//APP的根目录
         date_default_timezone_set($_arrConfig['TIME_ZONE']);//设置系统时区
         define('HOST',$_arrConfig['HOST']);//完整域名
@@ -38,7 +39,7 @@ class Spt {
         if (self::$arrConfig['SERVER']){
             self::runServer();
         }else{
-            if (C('SESSION_HANDLER')){
+            if (C('SESSION_HANDLER') && C('SESSION_HANDLER.NAME')){
                 ini_set('session.save_handler',C('SESSION_HANDLER.NAME'));
                 ini_set('session.save_path',C('SESSION_HANDLER.PATH'));
             }
@@ -316,26 +317,26 @@ class Spt {
         $strControl = ucfirst($arrPath[0]);//得到控制器
         $strAction = $arrPath[1];//得到方法
         define('__URL__',implode('/',$arrPath));//定义全局使用的最终URL
-        define('__CONTROL__',$strControl);//定义全局使用的最终控制器
-        define('__ACTION__',$strAction);//定义全局使用的最终方法
-        unset($strPath,$arrPath,$intPos);
         $strModule = APP_NAME . '\\Controller\\' . $strControl . 'Controller';//目标类
         $strEmptyModule = APP_NAME . '\\Controller\\EmptyController';//空类
         $objModule = class_exists($strModule)?new $strModule():null;//实例化目标类
-        if (!is_object($objModule)){//如果没有得到指一的，就使用空控制器
+        if (!is_object($objModule)){//如果没有得到指定类，就使用空控制器
             (class_exists($strEmptyModule) && $strControl = 'Empty') && $objModule = new $strEmptyModule();
         }
+        define('__CONTROL__',$strControl);//定义全局正在使用的最终控制器
         !is_object($objModule) && self::halt(//控制器 和 空控制都不存在，退出并提示
-            "[".__CONTROL__."Controller]({$strModule}) Controller not existing.<br>".
+            "[".ucfirst($arrPath[0])."Controller]({$strModule}) Controller not existing.<br>".
             "[EmptyController]({$strEmptyModule}) Controller not existing."
         );
         if(!method_exists($objModule,$strAction)){//方法 和 空方法都不存在，退出并提示
             !method_exists($objModule,'_empty') && self::halt(
-                "{$strControl}Controller function [{$strAction}] or [_empty] not existing."
+                "{$strControl}Controller function [{$strAction}] and [_empty] not existing."
             );
             $strAction = '_empty';//真正执行的方法
         }
-        $objModule->{$strAction}(__ACTION__);//执行对应控制器的方法，并把预想的方法传入。
+        define('__ACTION__',$strAction);//定义全局使用的最终方法
+        unset($strPath,$arrPath,$intPos);
+        $objModule->{$strAction}();//执行对应控制器的方法，并把预想的原型方法传入。
     }
 
 
