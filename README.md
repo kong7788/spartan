@@ -10,6 +10,7 @@
 	    		'HOST'=>'',//主机名
 	    		'DOMAIN'=>'',//域名
 	    		'DEBUG'=>true,//调试模式
+	    		'SAVE_LOG'=>true,//保存异常日志
 	    		'LANG'=>'zh-cn',//语言包
 	    		'TIME_ZONE'=>'PRC',//时区
 	    		'SERVER'=>false,//服务模式

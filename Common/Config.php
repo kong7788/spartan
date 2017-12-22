@@ -22,8 +22,8 @@ return Array(
     /* 模板引擎设置 */
     'TMPL_DEFAULT_THEME'    => '',//默认的主题，如果有主题，后面要带/
     'DEFAULT_CHARSET'       =>  'utf-8',
-    'TMPL_ACTION_ERROR'     =>  FRAME_PATH.'Tpl/Dispatch_jump.', // 默认错误跳转对应的模板文件
-    'TMPL_ACTION_SUCCESS'   =>  FRAME_PATH.'Tpl/Dispatch_jump.html', // 默认成功跳转对应的模板文件
+    'TMPL_ACTION_ERROR'     =>  FRAME_PATH.'Tpl/Dispatch_jump.tpl', // 默认错误跳转对应的模板文件
+    'TMPL_ACTION_SUCCESS'   =>  FRAME_PATH.'Tpl/Dispatch_jump.tpl', // 默认成功跳转对应的模板文件
     'TMPL_TEMPLATE_SUFFIX'  =>  '.html',     // 默认模板文件后缀
     // 布局设置
     'TMPL_DENY_FUNC_LIST'   =>  'echo,exit',    // 模板引擎禁用函数

@@ -58,14 +58,21 @@ class Spt {
         );
         if (!self::$arrConfig['SERVER']){
             $arrDir[] = APP_PATH.'View'.NS;
+            $arrDir[] = APP_PATH.'View'.NS.'Index'.NS;
             $arrDir[] = APP_PATH.'Runtime'.NS;
             $arrDir[] = APP_PATH.'Runtime'.NS.'Cache'.NS;
             $arrDir[] = APP_PATH.'Runtime'.NS.'Log'.NS;
         }else{
             $arrDir[] = APP_PATH.'Logic'.NS;
         }
+        $bloCreate = false;
         foreach ($arrDir as $dir){
-            !is_dir($dir) && mkdir($dir,0755,true);
+            !is_dir($dir) && ($bloCreate = true && mkdir($dir,0755,true));
+        }
+        if ($bloCreate){//初始化首页
+            $arrTempContent = explode('{Controller}',file_get_contents(FRAME_PATH.'Tpl'.NS.'Default_index.tpl'));
+            file_put_contents(APP_PATH.'Controller'.NS.'IndexController'.CLASS_EXT,str_replace('{App_NAME}',APP_NAME,$arrTempContent[0]));
+            file_put_contents(APP_PATH.'View'.NS.'Index'.NS.'index.html',$arrTempContent[1]);
         }
     }
 
@@ -227,19 +234,19 @@ class Spt {
         }
         if (in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
             self::$arrError[] = Array('message'=>$error['message'],'code'=>$error['type'],'file'=>$error['file'],'line'=>$error['line']);
-            self::halt();
+            self::halt('system error');
         }
-        self::$arrConfig['DEBUG'] && self::halt();
+        self::$arrConfig['DEBUG'] && self::halt('system error');
         self::$arrConfig['SAVE_LOG'] && self::saveLog();
     }
 
     /**
      * 错误输出
      * @param string $title
-     * @param string $info
+     * @param string|array $info
      */
-    public static function halt($info = '',$title = 'system error'){
-        $error = Array('title'=>self::getLang($title),'message'=>$info);
+    public static function halt($info,$title = 'system error'){
+        $error = Array('title'=>self::getLang($title),'message'=>is_array($info)?implode(':',$info):$info);
         $trace = debug_backtrace();
         $error['file'] = $trace[0]['file'];
         $error['line'] = $trace[0]['line'];
@@ -261,7 +268,7 @@ class Spt {
             }
         }else{
             $error['exception'] = '<p>' . implode('</p><p>',$arrException) . '</p>';
-            include(FRAME_PATH.'Tpl'.NS.'Exception.html');
+            include(FRAME_PATH.'Tpl'.NS.'Exception.tpl');
         }
         exit(0);
     }

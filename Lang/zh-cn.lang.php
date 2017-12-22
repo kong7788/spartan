@@ -17,6 +17,7 @@ return [
     'cached directory has no write permissions'                 => '缓存目录没有写入权限',
     'template file not allow php'                               => '模版文件不允许使用PHP代码',
     'xml tag error.'                                            => 'XML格式标签错误',
+    'not support extension'                                     => '未支持的扩展',
 
     // 上传错误信息
     'unknown upload error'                                      => '未知上传错误！',

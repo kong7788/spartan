@@ -1,9 +1,8 @@
 <?php
-namespace Spartan\Core;
+namespace Spartan\Lib;
 defined('APP_PATH') OR die('404 Not Found');
 
-class Db
-{
+class Db{
     protected $dbType     = null;// 数据库类型
     protected $pconnect   = false;// 是否使用永久连接
     protected $queryStr   = '';// 当前SQL指令
@@ -21,30 +20,87 @@ class Db
     protected $comparison = array('eq'=>'=','neq'=>'<>','gt'=>'>','egt'=>'>=','lt'=>'<','elt'=>'<=','notlike'=>'NOT LIKE','like'=>'LIKE','in'=>'IN','notin'=>'NOT IN');// 数据库表达式
     protected $selectSql  = 'SELECT%DISTINCT% %FIELD% FROM %TABLE%%JOIN%%WHERE%%GROUP%%HAVING%%ORDER%%LIMIT% %UNION%%COMMENT%';// 查询表达式
     protected $build = false;
-	protected $transName = '';//事务名称
-    protected $reTest   = 0;//重连接次数
+
+
+
+    private $arrConfig = [];//连接配置
+    private $transName = '';//事务名称
+    private $reTest   = 0;//重连接次数
+    /** @var null|\Spartan\Driver\Db\Pgsql|\Spartan\Driver\Db\Mysqli */
+    private $clsDriverInstance = null;//
+
 	/**
 	 * 取得数据库类实例
-	 * @param array $config
+	 * @param array $_arrConfig
 	 * @return Db 返回数据库驱动类
 	 */
-	public static function instance($config=Array()) {
-        $config = array_merge(C('DB'),$config);
-        return \St::getInstance('Spartan\\Driver\\Db\\'.ucwords(strtolower($config['TYPE'])),$config);
+	public static function instance($_arrConfig = Array()) {
+        return \Spt::getInstance(__CLASS__,array_merge(C('DB'),$_arrConfig));
     }
+
+    /**
+     * 初始化配置
+     * Db constructor.
+     * @param array $_arrConfig
+     */
+    public function __construct($_arrConfig = []) {
+        if ( !extension_loaded($_arrConfig['TYPE']) ) {
+            \Spt::halt(['not support extension',$_arrConfig['TYPE']]);
+        }
+        $_arrConfig['driver'] = ucfirst(strtolower($_arrConfig['driver']));
+        $this->clsDriverInstance = \Spt::getInstance('Spartan\\Driver\\Db\\'.$_arrConfig['driver'],$_arrConfig);
+        $this->arrConfig = $_arrConfig;
+    }
+
     /**
      * 初始化数据库连接
      * @access protected
-     * @param boolean $master 主服务器
+     * @param boolean $bolMaster 主服务器
      * @return void
      */
-    protected function initConnect($master=true) {
-        if(1 == C('DB.DEPLOY_TYPE')){// 采用分布式数据库
-	        $this->_linkID = $this->multiConnect($master);
+    protected function initConnect($bolMaster = true) {
+        if(isset($this->arrConfig['DEPLOY_TYPE']) && $this->arrConfig['DEPLOY_TYPE'] == 1){//采用分布式数据库
+	        $this->_linkID = $this->multiConnect($bolMaster);
         }else{// 默认单数据库
-	        if ( !$this->connected ){$this->_linkID = $this->connect();}
+	        if (!$this->connected){
+	            $this->_linkID = $this->connect();
+	        }
         }
     }
+
+    /**
+     * 重新连接数据库，累计次数
+     */
+    public function reConnect(){
+        $this->close();
+        $this->reTest = 0;
+        $this->initConnect(true);
+    }
+
+    /**
+     * 是否可以重连
+     * @return bool
+     */
+    public function isReTry(){
+        $errNo = mysqli_errno($this->_linkID);
+        if ($errNo == 2013 || $errNo == 2006){
+            return true;
+        }else{
+            return false;
+        }
+    }
+
+    /**
+     * @description 连接数据库方法
+     * @param int $linkNum
+     * @return int
+     */
+    public function connect($linkNum = 0) {
+        $this->_linkID = $this->clsDriverInstance->connect();
+    }
+
+
+
 
     /**
      * 连接分布式服务器
@@ -227,7 +283,7 @@ class Db
                     $whereStr   .= $this->parseThinkWhere($key,$val);
                 }else{// 查询字段的安全过滤
                     if(!preg_match('/^[A-Z_\|\&\-.a-z0-9\(\)\,@]+$/',trim($key))){
-                        \St::halt('_EXPRESS_ERROR_:'.$key);
+                        \Spt::halt('_EXPRESS_ERROR_:'.$key);
                     }
                     // 多条件支持
                     $multi  = is_array($val) &&  isset($val['_multi']);
@@ -294,7 +350,7 @@ class Db
                     $data = is_string($val[1])? explode(',',$val[1]):$val[1];
                     $whereStr .=  ' ('.$key.' '.strtoupper($val[0]).' '.$this->parseValue($data[0]).' AND '.$this->parseValue($data[1]).' )';
                 }else{
-                    \St::halt('_EXPRESS_ERROR_:'.$val[0]);
+                    \Spt::halt('_EXPRESS_ERROR_:'.$val[0]);
                 }
             }else {
                 $count = count($val);

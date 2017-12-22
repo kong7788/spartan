@@ -11,7 +11,7 @@ defined('APP_PATH') OR die('404 Not Found');
  * @date 14-5-24 下午12:03
  */
 
-class Controller{
+abstract class Controller{
     public $sessionId = '';//自定义session_id
     public $sessionExpire = 0;//session的有效期，0为默认
     public $cachePath = 'Runtime/Cache/';//模板缓存位置
@@ -292,7 +292,7 @@ class Controller{
     }
 
     /**
-     * @return null|\Spartan\Driver\Db\Mysql|\Spartan\Driver\Db\Pgsql;
+     * @return null|\Spartan\Core\Db;
      */
     public function Db(){
         static $dbInstance = null;
