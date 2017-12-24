@@ -4,6 +4,7 @@ namespace Spartan\Driver\Db;
 defined('APP_PATH') or exit();
 
 class Mysqli implements Db {
+
     /**
      * @description 连接数据库方法
      * @param array $_arrConfig
@@ -32,8 +33,15 @@ class Mysqli implements Db {
      * @return bool
      */
     public function free($intQueryID) {
-	    mysqli_free_result($intQueryID);
-	    return true;
+	    return mysqli_free_result($intQueryID);
+    }
+
+    /**
+     * 关闭数据库
+     * @access public
+     */
+    public function close($intLinkID) {
+        $intLinkID && @mysqli_close($intLinkID);
     }
 
     /**
@@ -44,49 +52,15 @@ class Mysqli implements Db {
      * @return mixed
      */
     public function query($intLinkID,$strSql) {
-        $intQueryID = mysqli_query($intLinkID,$strSql);
-        if ( false === $this->queryID ) {
-            if ($this->reTest >= 3 || !$this->reTry()){
-                $this->error();
-                return false;
-            }else{
-                $this->reTest++;
-                $this->reConnect();
-                return $this->query($str);
-            }
-        } else {
-            $this->numRows = mysqli_num_rows($this->queryID);
-            return $this->getAll();
-        }
+        return mysqli_query($intLinkID,$strSql);
     }
 
-    /**
-     * 执行语句
-     * @access public
-     * @param string $str  sql指令
-     * @return integer
-     */
-    public function execute($str) {
-	    $this->initConnect(true);
-	    if ( !$this->_linkID ) return false;
-	    $this->queryStr = $str;
-	    //释放前次的查询结果
-	    if ( $this->queryID ) {$this->free();}
-	    $result =   mysqli_query($this->_linkID,$str) ;
-	    if ( false === $result) {
-            if ($this->reTest >= 3 || !$this->reTry()){
-                $this->error();
-                return false;
-            }else{
-                $this->reTest++;
-                $this->reConnect();
-                return $this->execute($str);
-            }
-	    } else {
-		    $this->numRows = mysqli_affected_rows($this->_linkID);
-		    $this->lastInsID = mysqli_insert_id($this->_linkID);
-		    return $this->numRows;
-	    }
+    public function getNumRows($queryID){
+        return mysqli_num_rows($queryID);
+    }
+
+    public function getAffectedRows($intLinkID){
+        return mysqli_affected_rows($intLinkID);
     }
 
     /**
@@ -94,82 +68,22 @@ class Mysqli implements Db {
      * @access public
      * @return integer
      */
-    public function last_insert_id() {
-	    $this->lastInsID = mysqli_insert_id($this->_linkID);
-        return $this->lastInsID;
+    public function getInsertId($intLinkID) {
+	    return mysqli_insert_id($intLinkID);
     }
-
-
 
     /**
      * 获得所有的查询数据
-     * @access private
+     * @param  $queryID
      * @return array
      */
-    private function getAll() {
-	    //返回数据集
-	    $result = array();
-	    if($this->numRows >0) {
-		    while($row = mysqli_fetch_assoc($this->queryID)){
-			    $result[]   =   $row;
-		    }
-		    mysqli_data_seek($this->queryID,0);
-	    }
-	    return $result;
-    }
-
-    /**
-     * 取得数据表的字段信息
-     * @access public
-     */
-    public function getFields($tableName) {
-	    $result =   $this->query('SHOW COLUMNS FROM '.$this->parseKey($tableName));
-	    $info   =   array();
-	    if($result) {
-		    foreach ($result as $key => $val) {
-			    $info[$val['Field']] = array(
-				    'name'    => $val['Field'],
-				    'type'    => $val['Type'],
-				    'notnull' => (bool) ($val['Null'] === ''), // not null is empty, null is yes
-				    'default' => $val['Default'],
-				    'primary' => (strtolower($val['Key']) == 'pri'),
-				    'autoinc' => (strtolower($val['Extra']) == 'auto_increment'),
-			    );
-		    }
-	    }
-	    return $info;
-    }
-
-    /**
-     * 取得数据库的表信息
-     * @access public
-     */
-    public function getTables($dbName='') {
-	    if(!empty($dbName)) {
-		    $sql    = 'SHOW TABLES FROM '.$dbName;
-	    }else{
-		    $sql    = 'SHOW TABLES ';
-	    }
-	    $result =   $this->query($sql);
-	    $info   =   array();
-	    foreach ($result as $key => $val) {
-		    $info[$key] = current($val);
-	    }
-	    return $info;
-    }
-
-    /**
-     * 关闭数据库
-     * @access public
-     */
-    public function close() {
-	    if ($this->_linkID){
-		    @mysqli_close($this->_linkID);
-	    }
-	    $this->_linkID = null;
-        $this->linkID = [];
-        $this->connected = false;
-        $this->reTest = 0;
+    public function getAll($queryID) {
+	    $arrResult = Array();
+        while($row = mysqli_fetch_assoc($queryID)){
+            $arrResult[] = $row;
+        }
+        mysqli_data_seek($queryID,0);
+	    return $arrResult;
     }
 
     /**
@@ -177,26 +91,19 @@ class Mysqli implements Db {
      * 并显示当前的SQL语句
      * @return string
      */
-    public function error() {
-	    $this->error = mysqli_error($this->_linkID);
-	    if('' != $this->queryStr){
-		    $this->error .= "\n [ SQL语句 ] : ".$this->queryStr;
-	    }
-	    \St::halt($this->error,'','ERR');
-	    return $this->error;
+    public function error($intLinkID) {
+	    return mysqli_error($intLinkID);
     }
 
     /**
      * SQL指令安全过滤
      * @access public
-     * @param string $str  SQL指令
+     * @param string $value  SQL指令
+     * @param \mysqli $intLinkID 资源
      * @return string
      */
-    public function escapeString($value) {
-	    if(!$this->_linkID) {
-            $this->initConnect(true);
-	    }
-        return mysqli_real_escape_string($this->_linkID,$value);
+    public function escapeString($value,$intLinkID = null) {
+        return mysqli_real_escape_string($intLinkID,$value);
     }
 
     /**
@@ -221,4 +128,41 @@ class Mysqli implements Db {
 		}
 		return $key;
 	}
+
+
+    /**
+     * 取得数据表的字段信息
+     * @access public
+     */
+    public function getFields($intLinkID,$tableName) {
+        $result = mysqli_query($intLinkID,'SHOW COLUMNS FROM '.$tableName);
+        $arrInfo = Array();
+        if($result) {
+            foreach ($result as $key => $val) {
+                $arrInfo[$val['Field']] = Array(
+                    'name'    => $val['Field'],
+                    'type'    => $val['Type'],
+                    'notnull' => (bool)($val['Null'] === ''), // not null is empty, null is yes
+                    'default' => $val['Default'],
+                    'primary' => (strtolower($val['Key']) == 'pri'),
+                    'autoinc' => (strtolower($val['Extra']) == 'auto_increment'),
+                );
+            }
+        }
+        return $arrInfo;
+    }
+
+    /**
+     * 取得数据库的表信息
+     * @access public
+     */
+    public function getTables($intLinkID,$strDbName = '') {
+        $strSql = $strDbName?'SHOW TABLES FROM '.$strDbName:'SHOW TABLES';
+        $result = mysqli_query($intLinkID,$strSql);
+        $arrInfo = Array();
+        foreach ($result as $key => $val) {
+            $arrInfo[$key] = current($val);
+        }
+        return $arrInfo;
+    }
 }

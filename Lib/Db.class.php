@@ -9,7 +9,6 @@ class Db{
     protected $error      = '';// 错误信息
     protected $linkID     = Array();// 数据库连接ID 支持多个连接
     protected $_linkID    = null;// 当前连接ID
-    protected $selectSql  = 'SELECT%DISTINCT% %FIELD% FROM %TABLE%%JOIN%%WHERE%%GROUP%%HAVING%%ORDER%%LIMIT% %UNION%%COMMENT%';// 查询表达式
 
     private $arrConfig = [];//连接配置
     private $transName = '';//事务名称
@@ -199,6 +198,7 @@ class Db{
      * @return string
      */
     private function escapeString($value){
+        //TODO
         return $this->clsDriverInstance->escapeString($value);
     }
 
@@ -710,7 +710,7 @@ class Db{
             $offset = $listRows*((int)$page-1);
             $options['limit'] = $offset.','.$listRows;
         }
-        $strSql = $this->parseSql($this->selectSql,$options);
+        $strSql = $this->parseSql($options);
         $strSql .= $this->parseLock(isset($options['lock'])?$options['lock']:false);
         return str_ireplace('@.',$this->arrConfig['PREFIX'],$strSql);
     }
@@ -721,7 +721,7 @@ class Db{
      * @param array $options 表达式
      * @return string
      */
-    private function parseSql($sql,$options = []){
+    private function parseSql($options = []){
         return str_replace(
             ['%TABLE%','%DISTINCT%','%FIELD%','%JOIN%','%WHERE%','%GROUP%','%HAVING%','%ORDER%','%LIMIT%','%UNION%','%COMMENT%'],
             [
@@ -737,7 +737,7 @@ class Db{
                 $this->parseUnion((isset($options['union']) && $options['union'])?$options['union']:''),
                 $this->parseComment((isset($options['comment']) && $options['comment'])?$options['comment']:'')
             ],
-            $sql
+            'SELECT%DISTINCT% %FIELD% FROM %TABLE%%JOIN%%WHERE%%GROUP%%HAVING%%ORDER%%LIMIT% %UNION%%COMMENT%'
         );
     }
 
@@ -772,22 +772,41 @@ class Db{
      */
     public function getError() {
         return $this->error;
+        //$this->error .= "\n [ SQL语句 ] : ".$this->queryStr;
     }
 
     public function execute($strSql){
-        return $this->clsDriverInstance->execute($strSql);
+        $this->initConnect(true);
+        if ( !$this->_linkID ){
+            return false;
+        }
+        $this->queryStr = $strSql;
+        $this->queryID && $this->free();//释放前次的查询结果
+        $result = $this->clsDriverInstance->query($this->_linkID,$strSql);
+        if ( false === $result) {
+            if ($this->reTest >= 3 || !$this->reTry()){
+                $this->error();
+                return false;
+            }else{
+                $this->reTest++;
+                $this->reConnect();
+                return $this->execute($strSql);
+            }
+        } else {
+            $this->numRows = $this->clsDriverInstance->getAffectedRows($this->_linkID);
+            $this->lastInsID = $this->clsDriverInstance->getInsertId($this->_linkID);
+            return $this->numRows;
+        }
     }
 
     public function query($strSql){
-        if(0===stripos($str, 'call')){ //存储过程查询支持
-            $this->close();
-        }
         $this->initConnect(false);
-        if ( !$this->_linkID ) { return false;}
-        $this->queryStr = $str;
-        //释放前次的查询结果
-        if ( $this->queryID ) {$this->free();}
-        $this->queryID = mysqli_query($this->_linkID,$str);
+        if ( !$this->_linkID ) {
+            return false;
+        }
+        $this->queryStr = $strSql;
+        $this->queryID && $this->free();//释放前次的查询结果
+        $this->queryID = $this->clsDriverInstance->query($this->_linkID,$strSql);
         if ( false === $this->queryID ) {
             if ($this->reTest >= 3 || !$this->reTry()){
                 $this->error();
@@ -795,14 +814,12 @@ class Db{
             }else{
                 $this->reTest++;
                 $this->reConnect();
-                return $this->query($str);
+                return $this->query($strSql);
             }
         } else {
-            $this->numRows = mysqli_num_rows($this->queryID);
-            return $this->getAll();
+            $this->numRows = $this->clsDriverInstance->getNumRows($this->queryID);
+            return $this->clsDriverInstance->getAll($this->queryID);
         }
-
-        return $this->clsDriverInstance->query($strSql);
     }
     /**
      * 释放查询结果
@@ -819,6 +836,9 @@ class Db{
     public function close() {
         $this->clsDriverInstance->close($this->_linkID);
         $this->_linkID = null;
+        $this->linkID = [];
+        $this->connected = false;
+        $this->reTest = 0;
     }
 
     /**
