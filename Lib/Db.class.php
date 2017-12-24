@@ -3,39 +3,34 @@ namespace Spartan\Lib;
 defined('APP_PATH') OR die('404 Not Found');
 
 class Db{
-    protected $dbType     = null;// 数据库类型
-    protected $pconnect   = false;// 是否使用永久连接
-    protected $queryStr   = '';// 当前SQL指令
-	protected $sql        = Array();//所有SQL指令
-    protected $lastInsID  = null;// 最后插入ID
     protected $numRows    = 0;// 返回或者影响记录数
     protected $numCols    = 0;// 返回字段数
     protected $transTimes = 0;// 事务指令数
     protected $error      = '';// 错误信息
     protected $linkID     = Array();// 数据库连接ID 支持多个连接
     protected $_linkID    = null;// 当前连接ID
-    protected $queryID    = null;// 当前查询ID
-    protected $connected  = false;// 是否已经连接数据库
-    protected $config     = Array();// 数据库连接参数配置
-    protected $comparison = array('eq'=>'=','neq'=>'<>','gt'=>'>','egt'=>'>=','lt'=>'<','elt'=>'<=','notlike'=>'NOT LIKE','like'=>'LIKE','in'=>'IN','notin'=>'NOT IN');// 数据库表达式
     protected $selectSql  = 'SELECT%DISTINCT% %FIELD% FROM %TABLE%%JOIN%%WHERE%%GROUP%%HAVING%%ORDER%%LIMIT% %UNION%%COMMENT%';// 查询表达式
-    protected $build = false;
-
-
 
     private $arrConfig = [];//连接配置
     private $transName = '';//事务名称
     private $reTest   = 0;//重连接次数
-    /** @var null|\Spartan\Driver\Db\Pgsql|\Spartan\Driver\Db\Mysqli */
+    /** @var null|\Spartan\Driver\Db\Mysqli */
     private $clsDriverInstance = null;//
+    private $arrComparison = ['eq'=>'=','neq'=>'<>','gt'=>'>','egt'=>'>=','lt'=>'<','elt'=>'<=','notlike'=>'NOT LIKE','like'=>'LIKE','in'=>'IN','notin'=>'NOT IN'];// 数据库表达式
+    private $arrSql = [];//所有SQL指令
+    private $bolBuild = false;//是否为建造SQL模式
+    private $queryStr = '';// 当前SQL指令
+    private $lastInsID = 0;// 最后插入ID
+    private $queryID = 0;// 当前查询ID
+    private $connected  = false;// 是否已经连接数据库
 
-	/**
+    /**
 	 * 取得数据库类实例
 	 * @param array $_arrConfig
 	 * @return Db 返回数据库驱动类
 	 */
 	public static function instance($_arrConfig = Array()) {
-        return \Spt::getInstance(__CLASS__,array_merge(C('DB'),$_arrConfig));
+        return \Spt::getInstance(__CLASS__,$_arrConfig);
     }
 
     /**
@@ -44,10 +39,12 @@ class Db{
      * @param array $_arrConfig
      */
     public function __construct($_arrConfig = []) {
+        $_arrConfig = array_merge(C('DB'),$_arrConfig);
         if ( !extension_loaded($_arrConfig['TYPE']) ) {
             \Spt::halt(['not support extension',$_arrConfig['TYPE']]);
         }
         $_arrConfig['driver'] = ucfirst(strtolower($_arrConfig['driver']));
+        !isset($_arrConfig['PREFIX']) && $_arrConfig['PREFIX'] = '';
         $this->clsDriverInstance = \Spt::getInstance('Spartan\\Driver\\Db\\'.$_arrConfig['driver'],$_arrConfig);
         $this->arrConfig = $_arrConfig;
     }
@@ -93,10 +90,9 @@ class Db{
     /**
      * @description 连接数据库方法
      * @param int $linkNum
-     * @return int
      */
     public function connect($linkNum = 0) {
-        $this->_linkID = $this->clsDriverInstance->connect();
+        $this->_linkID[$linkNum] = $this->clsDriverInstance->connect();
     }
 
 
@@ -110,7 +106,7 @@ class Db{
      */
     protected function multiConnect($master=false) {
 	    $_config = Array();
-	    foreach ($this->config as $key=>$val){
+	    foreach ($this->arrConfig as $key=>$val){
             $_config[$key] = explode(',',$val);
         }
         // 数据库读写是否分离
@@ -144,9 +140,8 @@ class Db{
      * @param $lock
      * @return string
      */
-    protected function parseLock($lock=false) {
-        if(!$lock) return '';
-        return ' FOR UPDATE ';
+    private function parseLock($lock = false) {
+        return $lock ? ' FOR UPDATE ' : '';
     }
 
     /**
@@ -155,16 +150,16 @@ class Db{
      * @param array $data
      * @return string
      */
-    protected function parseSet($data) {
-	    $set = Array();
-	    foreach ($data as $key=>$val){
-            if(is_array($val) && 'exp' == $val[0]){
-                $set[]  =   $this->parseKey($key).'='.$val[1];
-            }elseif(is_scalar($val) || is_null($val)) { // 过滤非标量数据
-              $set[]  =   $this->parseKey($key).'='.$this->parseValue($val);
+    private function parseSet($data) {
+	    $arrSet = Array();
+	    foreach ($data as $k=>$v){
+            if(is_array($v) && $v[0] == 'exp'){
+                $arrSet[] = $this->parseKey($k) . '=' . $v[1];
+            }elseif(is_scalar($v) || is_null($v)) {//过滤非标量数据
+                $arrSet[] = $this->parseKey($k) . '=' . $this->parseValue($v);
             }
         }
-        return ' SET '.implode(',',$set);
+        return ' SET '.implode(',',$arrSet);
     }
 
     /**
@@ -173,17 +168,17 @@ class Db{
      * @param string $key
      * @return string
      */
-    protected function parseKey($key) {
-        return $key;
+    private function parseKey($key) {
+        return $this->clsDriverInstance->parsekey($key);
     }
 
     /**
      * value分析
      * @access protected
      * @param mixed $value
-     * @return string
+     * @return array|string
      */
-    protected function parseValue($value) {
+    private function parseValue($value) {
         if(is_string($value)) {
             $value =  '\''.$this->escapeString($value).'\'';
         }elseif(isset($value[0]) && is_string($value[0]) && strtolower($value[0]) == 'exp'){
@@ -199,32 +194,40 @@ class Db{
     }
 
     /**
+     * SQL指令安全过滤
+     * @param $value
+     * @return string
+     */
+    private function escapeString($value){
+        return $this->clsDriverInstance->escapeString($value);
+    }
+
+    /**
      * field分析
      * @access protected
      * @param mixed $fields
      * @return string
      */
-    protected function parseField($fields) {
+    private function parseField($fields) {
         if(is_string($fields) && strpos($fields,',')) {
             $fields = explode(',',$fields);
         }
-        if(is_array($fields)) {
-            // 完善数组方式传字段名的支持
-            // 支持 'field1'=>'field2' 这样的字段别名定义
-            $array   =  array();
-            foreach ($fields as $key=>$field){
-                if(!is_numeric($key))
-                    $array[] =  $this->parseKey($key).' AS '.$this->parseKey($field);
-                else
-                    $array[] =  $this->parseKey($field);
+        if(is_array($fields)) {//支持 'field1'=>'field2' 这样的字段别名定义
+            $array = Array();
+            foreach ($fields as $k=>$v){
+                if(!is_numeric($k)){
+                    $array[] = $this->parseKey($k).' AS '.$this->parseKey($v);
+                }else{
+                    $array[] =  $this->parseKey($v);
+                }
             }
-            $fieldsStr = implode(',', $array);
+            $strFields = implode(',', $array);
         }elseif(is_string($fields) && !empty($fields)) {
-            $fieldsStr = $this->parseKey($fields);
+            $strFields = $this->parseKey($fields);
         }else{
-            $fieldsStr = '*';
+            $strFields = '*';
         }
-        return $fieldsStr;
+        return $strFields;
     }
 
     /**
@@ -233,8 +236,8 @@ class Db{
      * @param mixed $tables
      * @return string
      */
-    protected function parseTable($tables) {
-        if(is_array($tables)) {// 支持别名定义
+    private function parseTable($tables) {
+        if(is_array($tables)) {//支持别名定义
 	        $tables = $this->parseTrueTable($tables[0]).' '.$tables[1];
         }elseif(is_string($tables)){
 	        $tables = $this->parseTrueTable($tables);
@@ -247,133 +250,136 @@ class Db{
 	 * @param $table
 	 * @return string
 	 */
-	protected function parseTrueTable($table){
-		if($this->config['PREFIX'] && stripos($table,$this->config['PREFIX'])!==0)
-		{
-			$table = $this->config['PREFIX'].$table;
+    private function parseTrueTable($table){
+		if($this->arrConfig['PREFIX'] && stripos($table,$this->arrConfig['PREFIX']) !== 0){
+			$table = $this->arrConfig['PREFIX'] . $table;
 		}
-		return $table;
+		return str_replace('@.',$this->arrConfig[''],$table);
 	}
+
     /**
      * where分析
      * @access protected
      * @param mixed $where
      * @return string
      */
-    protected function parseWhere($where) {
-        $whereStr = '';
-        if(is_string($where))// 直接使用字符串条件
-        {
-            $whereStr = $where;
-        }else{ // 使用数组表达式
-            $operate  = isset($where['_logic'])?strtoupper($where['_logic']):'';
-            if(in_array($operate,array('AND','OR','XOR')))
-            {// 定义逻辑运算规则 例如 OR XOR AND NOT
-                $operate    =   ' '.$operate.' ';
-                unset($where['_logic']);
-            }else{// 默认进行 AND 运算
-                $operate    =   ' AND ';
-            }
-            foreach ($where as $key=>$val){
-                $whereStr .= '( ';
-                if(is_numeric($key)){
-                    $key  = '_complex';
-                }
-                if(0===strpos($key,'_')){// 解析特殊条件表达式
-                    $whereStr   .= $this->parseThinkWhere($key,$val);
-                }else{// 查询字段的安全过滤
-                    if(!preg_match('/^[A-Z_\|\&\-.a-z0-9\(\)\,@]+$/',trim($key))){
-                        \Spt::halt('_EXPRESS_ERROR_:'.$key);
-                    }
-                    // 多条件支持
-                    $multi  = is_array($val) &&  isset($val['_multi']);
-                    $key    = trim($key);
-                    if(strpos($key,'|')) { // 支持 name|title|nickname 方式定义查询字段
-                        $array =  explode('|',$key);
-                        $str   =  array();
-                        foreach ($array as $m=>$k){
-                            $v =  $multi?$val[$m]:$val;
-                            $str[]   = '('.$this->parseWhereItem($this->parseKey($k),$v).')';
-                        }
-                        $whereStr .= implode(' OR ',$str);
-                    }elseif(strpos($key,'&')){
-                        $array =  explode('&',$key);
-                        $str   =  array();
-                        foreach ($array as $m=>$k){
-                            $v =  $multi?$val[$m]:$val;
-                            $str[]   = '('.$this->parseWhereItem($this->parseKey($k),$v).')';
-                        }
-                        $whereStr .= implode(' AND ',$str);
-                    }else{
-                        $whereStr .= $this->parseWhereItem($this->parseKey($key),$val);
-                    }
-                }
-                $whereStr .= ' )'.$operate;
-            }
-            $whereStr = substr($whereStr,0,-strlen($operate));
+    private function parseWhere($where) {
+        if(is_string($where)){//直接使用字符串条件
+            return empty($where)?'':' WHERE '.$where;
         }
-        return empty($whereStr)?'':' WHERE '.$whereStr;
+        $strWhere = '';
+        //使用数组表达式
+        $strOperate = isset($where['_logic'])?strtoupper($where['_logic']):'';
+        if(in_array($strOperate,['AND','OR','XOR'])){//定义逻辑运算规则,OR XOR AND
+            $strOperate = ' '. $strOperate . ' ';
+            unset($where['_logic']);
+        }else{//默认进行 AND 运算
+            $strOperate = ' AND ';
+        }
+        foreach ($where as $k=>$v){
+            $strWhere .= '( ';
+            $k = trim($k);
+            is_numeric($k) && $k  = '_complex';
+
+                if(0 === strpos($k,'_')){// 解析特殊条件表达式
+                    $strWhere .= $this->parseCustomWhere($k,$v);
+                }else{// 查询字段的安全过滤
+                    if(!preg_match('/^[A-Z_\|\&\-.a-z0-9\(\)\,@]+$/',$k)){
+                        \Spt::halt(['where express error',$k]);
+                    }
+                    $bolMulti = is_array($v) &&  isset($v['_multi']);//多条件支持
+                    if(strpos($k,'|')) {//支持 name|title|nickname 方式定义查询字段
+                        $arrTempKey = explode('|',$k);
+                        $arrTempStr = Array();
+                        foreach ($arrTempKey as $kk=>$vv){//name|title|nickname 每个都是字段key
+                            $strValue =  $bolMulti?$v[$kk]:$v;
+                            $arrTempStr[] = '('.$this->parseWhereItem($this->parseKey($vv),$strValue).')';
+                        }
+                        $strWhere .= implode(' OR ',$arrTempStr);
+                    }elseif(strpos($k,'&')){//支持 name&&title&&nickname 方式定义查询字段
+                        $arrTempKey = explode('&',$k);
+                        $arrTempStr = Array();
+                        foreach ($arrTempKey as $kk=>$vv){//name&title&nickname 每个都是字段key
+                            $strValue =  $bolMulti?$v[$kk]:$v;
+                            $arrTempStr[] = '('.$this->parseWhereItem($this->parseKey($vv),$strValue).')';
+                        }
+                        $strWhere .= implode(' AND ',$arrTempStr);
+                    }else{
+                        $strWhere .= $this->parseWhereItem($this->parseKey($k),$v);
+                    }
+                }
+            $strWhere .= ' )'. $strOperate;
+        }
+        $strWhere = substr($strOperate, 0 , -strlen($strOperate));
+        return empty($strWhere) ? '' : ' WHERE '.$strWhere;
     }
 
-    // where子单元分析
-    protected function parseWhereItem($key,$val) {
-        $whereStr = '';
-        if(is_array($val)) {
-            if(is_string($val[0])) {
-                if(preg_match('/^(EQ|NEQ|GT|EGT|LT|ELT)$/i',$val[0])) { // 比较运算
-                    $whereStr .= $key.' '.$this->comparison[strtolower($val[0])].' '.$this->parseValue($val[1]);
-                }elseif(preg_match('/^(NOTLIKE|LIKE)$/i',$val[0])){// 模糊查找
-                    if(is_array($val[1])) {
-                        $likeLogic  =   isset($val[2])?strtoupper($val[2]):'OR';
-                        if(in_array($likeLogic,array('AND','OR','XOR'))){
-                            $likeStr    =   $this->comparison[strtolower($val[0])];
-                            $like       =   array();
-                            foreach ($val[1] as $item){
-                                $like[] = $key.' '.$likeStr.' '.$this->parseValue($item);
-                            }
-                            $whereStr .= '('.implode(' '.$likeLogic.' ',$like).')';
-                        }
-                    }else{
-                        $whereStr .= $key.' '.$this->comparison[strtolower($val[0])].' '.$this->parseValue($val[1]);
-                    }
-                }elseif('exp'==strtolower($val[0])){ // 使用表达式
-                    $whereStr .= ' ('.$key.' '.$val[1].') ';
-                }elseif(preg_match('/IN/i',$val[0])){ // IN 运算
-                    if(isset($val[2]) && 'exp'==$val[2]) {
-                        $whereStr .= $key.' '.strtoupper($val[0]).' '.$val[1];
-                    }else{
-                        (is_numeric($val[1])||is_string($val[1])) && $val[1] = explode(',',$val[1]);
-                        $zone = implode(',',$this->parseValue($val[1]));
-                        $whereStr .= $key.' '.strtoupper($val[0]).' ('.$zone.')';
-                    }
-                }elseif(preg_match('/BETWEEN/i',$val[0])){ // BETWEEN运算
-                    $data = is_string($val[1])? explode(',',$val[1]):$val[1];
-                    $whereStr .=  ' ('.$key.' '.strtoupper($val[0]).' '.$this->parseValue($data[0]).' AND '.$this->parseValue($data[1]).' )';
-                }else{
-                    \Spt::halt('_EXPRESS_ERROR_:'.$val[0]);
-                }
-            }else {
-                $count = count($val);
-                $rule  = isset($val[$count-1]) ? (is_array($val[$count-1]) ? strtoupper($val[$count-1][0]) : strtoupper($val[$count-1]) ) : '' ;
-                if(in_array($rule,array('AND','OR','XOR'))) {
-                    $count  = $count -1;
-                }else{
-                    $rule   = 'AND';
-                }
-                for($i=0;$i<$count;$i++) {
-                    $data = is_array($val[$i])?$val[$i][1]:$val[$i];
-                    if('exp'==strtolower($val[$i][0])) {
-                        $whereStr .= '('.$key.' '.$data.') '.$rule.' ';
-                    }else{
-                        $whereStr .= '('.$this->parseWhereItem($key,$val[$i]).') '.$rule.' ';
-                    }
-                }
-                $whereStr = substr($whereStr,0,-4);
-            }
-        }else {
-            $whereStr .= $key.' = '.$this->parseValue($val);
+    /**
+     * where子单元分析
+     * @param $key
+     * @param $val
+     * @return string
+     */
+    private function parseWhereItem($key,$val) {
+        if(!is_array($val)) {//值不是数组
+            return $key .' = '. $this->parseValue($val);
         }
-        return $whereStr;
+        $strWhere = '';
+        if (!is_string($val[0])){//值的第一个值不是字符串
+            $intCount = count($val);
+            $strRule = end($val);
+            is_array($strRule) && $strRule = $strRule[0];
+            $strRule = strtoupper($strRule);
+            if(in_array($strRule,['AND','OR','XOR'])) {
+                $intCount--;
+            }else{
+                $strRule = 'AND';
+            }
+            for($i = 0;$i < $intCount;$i++) {
+                $data = is_array($val[$i])?$val[$i][1]:$val[$i];
+                if('exp'==strtolower($val[$i][0])) {
+                    $strWhere .= '('.$key.' '.$data.') '. $strRule .' ';
+                }else{
+                    $strWhere .= '('.$this->parseWhereItem($key,$val[$i]).') '. $strRule .' ';
+                }
+            }
+            return substr($strWhere,0,-4);
+        }
+        //值的第一个值是字符串
+        if(preg_match('/^(EQ|NEQ|GT|EGT|LT|ELT)$/i',$val[0])) { // 比较运算
+            return $key.' '.$this->arrComparison[strtolower($val[0])].' '.$this->parseValue($val[1]);
+        }
+        if(preg_match('/^(NOTLIKE|LIKE)$/i',$val[0])){// 模糊查找
+            if(is_array($val[1])) {
+                $likeLogic = isset($val[2])?strtoupper($val[2]):'OR';
+                if(in_array($likeLogic,array('AND','OR','XOR'))){
+                    $likeStr = $this->arrComparison[strtolower($val[0])];
+                    $arrLike = Array();
+                    foreach ($val[1] as $item){
+                        $arrLike[] = $key.' '.$likeStr.' '.$this->parseValue($item);
+                    }
+                    $strWhere .= '('.implode(' '.$likeLogic.' ',$arrLike).')';
+                }
+            }else{
+                $strWhere .= $key.' '.$this->arrComparison[strtolower($val[0])].' '.$this->parseValue($val[1]);
+            }
+        }elseif('exp'==strtolower($val[0])){ // 使用表达式
+            $strWhere .= ' ('.$key.' '.$val[1].') ';
+        }elseif(preg_match('/IN/i',$val[0])){ // IN 运算
+            if(isset($val[2]) && 'exp'==$val[2]) {
+                $strWhere .= $key.' '.strtoupper($val[0]).' '.$val[1];
+            }else{
+                (is_numeric($val[1])||is_string($val[1])) && $val[1] = explode(',',$val[1]);
+                $zone = implode(',',$this->parseValue($val[1]));
+                $strWhere .= $key.' '.strtoupper($val[0]).' ('.$zone.')';
+            }
+        }elseif(preg_match('/BETWEEN/i',$val[0])){ // BETWEEN运算
+            $data = is_string($val[1])? explode(',',$val[1]):$val[1];
+            $strWhere .=  ' ('.$key.' '.strtoupper($val[0]).' '.$this->parseValue($data[0]).' AND '.$this->parseValue($data[1]).' )';
+        }else{
+            \Spt::halt(['parseWhereItem  express error',implode('---',$val)]);
+        }
+        return $strWhere;
     }
 
     /**
@@ -383,33 +389,33 @@ class Db{
      * @param mixed $val
      * @return string
      */
-    protected function parseThinkWhere($key,$val) {
-        $whereStr   = '';
+    private function parseCustomWhere($key,$val) {
+        $strWhere = '';
         switch($key) {
-            case '_string':
-                // 字符串模式查询条件
-                $whereStr = $val;
+            case '_string':// 字符串模式查询条件
+                $strWhere = $val;
                 break;
-            case '_complex':
-                // 复合查询条件
-                $whereStr = is_string($val)? $val : substr($this->parseWhere($val),6);
+            case '_complex':// 复合查询条件
+                $strWhere = is_string($val)? $val : substr($this->parseWhere($val),6);
                 break;
-            case '_query':
-                // 字符串模式查询条件
-                parse_str($val,$where);
-                if(isset($where['_logic'])) {
-                    $op   =  ' '.strtoupper($where['_logic']).' ';
-                    unset($where['_logic']);
+            case '_query':// 字符串模式查询条件
+                parse_str($val,$arrWhere);
+                if(isset($arrWhere['_logic'])) {
+                    $strOperate = ' '.strtoupper($arrWhere['_logic']).' ';
+                    unset($arrWhere['_logic']);
                 }else{
-                    $op   =  ' AND ';
+                    $strOperate = ' AND ';
                 }
-                $array   =  array();
-                foreach ($where as $field=>$data)
-                    $array[] = $this->parseKey($field).' = '.$this->parseValue($data);
-                $whereStr   = implode($op,$array);
+                $arrTemp = Array();
+                foreach ($arrWhere as $field=>$data){
+                    $arrTemp[] = $this->parseKey($field).' = '.$this->parseValue($data);
+                }
+                $strWhere = implode($strOperate,$arrTemp);
                 break;
+            default:
+                \Spt::halt(['parseCustomWhere express error',$key]);
         }
-        return $whereStr;
+        return $strWhere;
     }
 
     /**
@@ -418,121 +424,125 @@ class Db{
      * @param array $join
      * @return string
      */
-    protected function parseJoin($join) {
-        $joinStr = '';
-        if(!empty($join)) {
-            if(is_array($join)) {
-                foreach ($join as $_join){
-                    if(false !== stripos($_join,'JOIN'))
-                        $joinStr .= ' '.$_join;
-                    else
-                        $joinStr .= ' LEFT JOIN ' .$_join;
-                }
-            }else{
-                $joinStr .= ' LEFT JOIN ' .$join;
-            }
+    private function parseJoin($join) {
+        if (empty($join)){
+            return '';
         }
-        return $joinStr;
+        $strJoin = '';
+        if(is_array($join)) {
+            foreach ($join as $_join){
+                if(false !== stripos($_join,'JOIN')){
+                    $strJoin .= ' '.$_join;
+                }else{
+                    $strJoin .= ' LEFT JOIN ' .$_join;
+                }
+            }
+        }else{
+            $strJoin .= ' LEFT JOIN ' . $join;
+        }
+        return $strJoin;
     }
 
     /**
      * order分析
-     * @access protected
+     * @access private
      * @param mixed $order
      * @return string
      */
-    protected function parseOrder($order) {
+    private function parseOrder($order) {
         if(is_array($order)) {
-            $array   =  array();
+            $arrTemp = Array();
             foreach ($order as $key=>$val){
                 if(is_numeric($key)) {
-                    $array[] =  $this->parseKey($val);
+                    $arrTemp[] = $this->parseKey($val);
                 }else{
-                    $array[] =  $this->parseKey($key).' '.$val;
+                    $arrTemp[] = $this->parseKey($key).' '.$val;
                 }
             }
-            $order   =  implode(',',$array);
+            $order = implode(',',$arrTemp);
         }
-        return !empty($order)?  ' ORDER BY '.$order:'';
+        return !empty($order)?' ORDER BY '.$order:'';
     }
 
     /**
      * group分析
-     * @access protected
+     * @access private
      * @param mixed $group
      * @return string
      */
-    protected function parseGroup($group) {
-        return !empty($group)? ' GROUP BY '.$group:'';
+    private function parseGroup($group) {
+        return !empty($group) ? ' GROUP BY ' . $group : '';
     }
 
     /**
      * having分析
-     * @access protected
+     * @access private
      * @param string $having
      * @return string
      */
-    protected function parseHaving($having) {
-        return  !empty($having)?   ' HAVING '.$having:'';
+    private function parseHaving($having) {
+        return !empty($having)? ' HAVING ' . $having : '';
     }
 
     /**
      * comment分析
-     * @access protected
+     * @access private
      * @param string $comment
      * @return string
      */
-    protected function parseComment($comment) {
-        return  !empty($comment)?   ' /* '.$comment.' */':'';
+    private function parseComment($comment) {
+        return !empty($comment) ? ' /* ' . $comment . ' */' : '';
     }
 
     /**
      * distinct分析
-     * @access protected
+     * @access private
      * @param mixed $distinct
      * @return string
      */
-    protected function parseDistinct($distinct) {
-        return !empty($distinct)?   ' DISTINCT ' :'';
+    private function parseDistinct($distinct) {
+        return !empty($distinct)? ' DISTINCT ' : '';
     }
 
     /**
      * union分析
-     * @access protected
+     * @access private
      * @param mixed $union
      * @return string
      */
-    protected function parseUnion($union) {
-        if(empty($union)) return '';
+    private function parseUnion($union) {
+        if(empty($union)){
+            return '';
+        }
         if(isset($union['_all'])) {
-            $str  =   'UNION ALL ';
+            $str = 'UNION ALL ';
             unset($union['_all']);
         }else{
-            $str  =   'UNION ';
+            $str = 'UNION ';
         }
-        $sql = Array();
+        $arrSql = Array();
         foreach ($union as $u){
-            $sql[] = $str.(is_array($u)?$this->buildSelectSql($u):$u);
+            $arrSql[] = $str . (is_array($u)?$this->buildSelectSql($u):$u);
         }
-        return implode(' ',$sql);
+        return implode(' ',$arrSql);
     }
 
 	/**
 	 * 提取所有的SQL语句。
-	 * @param null $type
+	 * @param string $type
 	 * @return array
 	 */
-	public function getAllSql($type=null){
-		return $type&&isset($this->sql[$type])?$this->sql[$type]:$this->sql;
+    public function getAllSql($type = ''){
+		return isset($this->arrSql[$type])?$this->arrSql[$type]:$this->arrSql;
 	}
 
-    /**
+   /**
      * 生成SQL的标识，所有的增删修的动作只会生成SQL，而不会运行
      * @return bool
      */
     public function buildSql(){
-        $this->build = true;
-        $this->sql = Array();
+        $this->bolBuild = true;
+        $this->arrSql = Array();
         return true;
     }
 
@@ -542,9 +552,10 @@ class Db{
      * @return array
      */
     public function cancelBuildSql($type=null){
-        $this->build = false;
+        $this->bolBuild = false;
         return $this->getAllSql($type);
     }
+
     /**
      * 插入记录
      * @history 1、insert 没有锁表操作 by singer
@@ -553,8 +564,8 @@ class Db{
      * @param array $options 参数表达式
      * @return false | integer
      */
-    public function insert($table,$data,$options=array()) {
-        $values = $fields = array();
+    public function insert($table,$data,$options = []) {
+        $values = $fields = [];
         $options['table'] = $table;
 	    $replace = isset($options['replace'])?$options['replace']:false;//是否replace
         foreach ($data as $key=>$val){
@@ -568,9 +579,13 @@ class Db{
         }
         $sql = ($replace?'REPLACE':'INSERT').' INTO '.$this->parseTable($options['table']).
 	        ' ('.implode(',', $fields).') VALUES ('.implode(',', $values).')';
-        $sql   .= $this->parseComment(!empty($options['comment'])?$options['comment']:'');
-        if(!in_array($table,['sys_sql_log'])){$this->sql['insert'][] = $sql;}
-        if($this->build){return false;}
+        $sql .= $this->parseComment(!empty($options['comment'])?$options['comment']:'');
+        if(!in_array($table,['sys_sql_log'])){
+            $this->arrSql['insert'][] = $sql;
+        }
+        if($this->bolBuild){
+            return false;
+        }
 	    $result = $this->execute($sql);
 	    if(false !== $result ){
 		    $result = $this->getLastInsID();
@@ -589,19 +604,21 @@ class Db{
     public function update($table,$data,$options){
         if(!isset($options['where'])){//防止误操作，条件不能为空，不使用条件时，where==false
 	        return false;
-        }elseif(isset($options['where']) && $options['where']==false){
+        }elseif(isset($options['where']) && $options['where'] == false){
             $options['where'] = '';
         }
         $table = isset($options['alias'])?Array($table,$options['alias']):$table;
-	    $sql = 'UPDATE '
+	    $strSql = 'UPDATE '
             .$this->parseTable($table)
             .$this->parseSet($data)
             .$this->parseWhere(!empty($options['where'])?$options['where']:'')
             .$this->parseLimit(!empty($options['limit'])?$options['limit']:'')
             .$this->parseComment(!empty($options['comment'])?$options['comment']:'');
-        $this->sql['update'][] = $sql;
-        if($this->build){return false;}
-        return $this->execute($sql);
+        $this->arrSql['update'][] = $strSql;
+        if($this->bolBuild){
+            return false;
+        }
+        return $this->execute($strSql);
     }
 
     /**
@@ -610,33 +627,35 @@ class Db{
      * @param array $options 表达式
      * @return false | integer
      */
-    public function delete($table,$options=array()){
+    public function delete($table,$options = []){
         if(!isset($options['where'])){//防止误操作，条件不能为空，不使用条件时，where==false
             return false;
-        }elseif(isset($options['where']) && $options['where']==false){
+        }elseif(isset($options['where']) && $options['where'] == false){
             $options['where'] = '';
         }
         $this->initConnect(false);
-        $sql = 'DELETE FROM '
+        $strSql = 'DELETE '.'FROM '
             .$this->parseTable($table)
             .$this->parseWhere(!empty($options['where'])?$options['where']:'')
             .$this->parseComment(!empty($options['comment'])?$options['comment']:'');
-        $this->sql['delete'][] = $sql;
-        if ($this->build){return false;}
-        return $this->execute($sql);
+        $this->arrSql['delete'][] = $strSql;
+        if ($this->bolBuild){
+            return false;
+        }
+        return $this->execute($strSql);
     }
-	/**
+
+    /**
 	 * 选择查询语句
 	 * @param $table
 	 * @param array $options
 	 * @return mixed
 	 */
-	public function select($table,$options=array()){
+	public function select($table,$options = []){
 		$options['table'] = isset($options['alias'])?Array($table,$options['alias']):$table;
-        $sql = $this->buildSelectSql($options);
-        $this->sql['select'][] = $sql;
-        $result = $this->query($sql);
-        return $result;
+        $strSql = $this->buildSelectSql($options);
+        $this->arrSql['select'][] = $strSql;
+        return $this->query($strSql);
     }
 
 	/**
@@ -646,32 +665,31 @@ class Db{
 	 * @param string $math 是否运算
 	 * @return mixed
 	 */
-	public function find($table,$options=array(),$math=null){
-		if (!is_null($math)){
+	public function find($table,$options = [],$math = ''){
+		if ($math){
             $math = explode('(',$math);//count(id). sum(money). min(id)
             if (!in_array($math[0],['count','sum','min','max','avg'])){
                 $math = null;
             }else{
-                $math[1] = isset($math[1])?str_replace(')','',$math[1]):'*';
+                $math[1] = (isset($math[1]) && $math[1])?substr($math[1],-1):'*';
                 $options['field'] = "$math[0]($math[1]) as tmp";
 	            unset($options['order']);
             }
+            unset($options['lock']);
         }
 		unset($options['page']);
 		$options['limit'] = 1;
-		$options['table']=(isset($options['alias'])&&!$math)?Array($table,$options['alias']):$table;
-		if($math){unset($options['lock']);}
 		$options['table'] = isset($options['alias'])?Array($table,$options['alias']):$table;
-		$sql = $this->buildSelectSql($options);
-        $this->sql['select'][] = $sql;
-        $result = $this->query($sql);
+		$strSql = $this->buildSelectSql($options);
+        $this->arrSql['select'][] = $strSql;
+        $result = $this->query($strSql);
 		if(false === $result){
 			return false;
 		}
 		if(empty($result) || !isset($result[0])){
 			return null;
 		}
-		return $math?$result[0]['tmp']:$result[0];
+		return $math?(isset($result[0]['tmp'])?$result[0]['tmp']:0):$result[0];
 	}
 
     /**
@@ -679,24 +697,22 @@ class Db{
      * @param array $options 表达式
      * @return string
      */
-	protected function buildSelectSql($options=array()) {
+	private function buildSelectSql($options = []) {
         $this->initConnect(false);
-        if(isset($options['page']))// 根据页数计算limit
-        {
+        if(isset($options['page'])){// 根据页数计算limit
             if(strpos($options['page'],',')) {
-                list($page,$listRows) =  explode(',',$options['page']);
+                list($page,$listRows) = explode(',',$options['page']);
             }else{
                 $page = $options['page'];
             }
-            $page    =  $page?:1;
-            $listRows=  isset($listRows)?$listRows:(is_numeric($options['limit'])?$options['limit']:20);
-            $offset  =  $listRows*((int)$page-1);
-            $options['limit'] =  $offset.','.$listRows;
+            $page = $page?$page:1;
+            $listRows = isset($listRows)?$listRows:(is_numeric($options['limit'])?$options['limit']:20);
+            $offset = $listRows*((int)$page-1);
+            $options['limit'] = $offset.','.$listRows;
         }
-        $sql  =     $this->parseSql($this->selectSql,$options);
-        $sql .=     $this->parseLock(isset($options['lock'])?$options['lock']:false);
-	    $sql = str_ireplace('@.',$this->config['PREFIX'],$sql);
-        return $sql;
+        $strSql = $this->parseSql($this->selectSql,$options);
+        $strSql .= $this->parseLock(isset($options['lock'])?$options['lock']:false);
+        return str_ireplace('@.',$this->arrConfig['PREFIX'],$strSql);
     }
 
     /**
@@ -705,23 +721,32 @@ class Db{
      * @param array $options 表达式
      * @return string
      */
-	protected function parseSql($sql,$options=array()){
-        $sql   = str_replace(
-            array('%TABLE%','%DISTINCT%','%FIELD%','%JOIN%','%WHERE%','%GROUP%','%HAVING%','%ORDER%','%LIMIT%','%UNION%','%COMMENT%'),
-            array(
+    private function parseSql($sql,$options = []){
+        return str_replace(
+            ['%TABLE%','%DISTINCT%','%FIELD%','%JOIN%','%WHERE%','%GROUP%','%HAVING%','%ORDER%','%LIMIT%','%UNION%','%COMMENT%'],
+            [
                 $this->parseTable($options['table']),
-                $this->parseDistinct(isset($options['distinct'])?$options['distinct']:false),
-                $this->parseField(!empty($options['field'])?$options['field']:'*'),
-                $this->parseJoin(!empty($options['join'])?$options['join']:''),
-                $this->parseWhere(!empty($options['where'])?$options['where']:''),
-                $this->parseGroup(!empty($options['group'])?$options['group']:''),
-                $this->parseHaving(!empty($options['having'])?$options['having']:''),
-                $this->parseOrder(!empty($options['order'])?$options['order']:''),
-                $this->parseLimit(!empty($options['limit'])?$options['limit']:''),
-                $this->parseUnion(!empty($options['union'])?$options['union']:''),
-                $this->parseComment(!empty($options['comment'])?$options['comment']:'')
-            ),$sql);
-        return $sql;
+                $this->parseDistinct((isset($options['distinct']) && $options['distinct'])?$options['distinct']:false),
+                $this->parseField((isset($options['field']) && $options['field'])?$options['field']:'*'),
+                $this->parseJoin((isset($options['join']) && $options['join'])?$options['join']:''),
+                $this->parseWhere((isset($options['where']) && $options['where'])?$options['where']:''),
+                $this->parseGroup((isset($options['group']) && $options['group'])?$options['group']:''),
+                $this->parseHaving((isset($options['having']) && $options['having'])?$options['having']:''),
+                $this->parseOrder((isset($options['order']) && $options['order'])?$options['order']:''),
+                $this->parseLimit((isset($options['limit']) && $options['limit'])?$options['limit']:''),
+                $this->parseUnion((isset($options['union']) && $options['union'])?$options['union']:''),
+                $this->parseComment((isset($options['comment']) && $options['comment'])?$options['comment']:'')
+            ],
+            $sql
+        );
+    }
+
+    /**
+     * @param $limit
+     * @return string
+     */
+    private function parseLimit($limit){
+        return $this->clsDriverInstance->parseLimit($limit);
     }
 
     /**
@@ -749,6 +774,120 @@ class Db{
         return $this->error;
     }
 
+    public function execute($strSql){
+        return $this->clsDriverInstance->execute($strSql);
+    }
+
+    public function query($strSql){
+        if(0===stripos($str, 'call')){ //存储过程查询支持
+            $this->close();
+        }
+        $this->initConnect(false);
+        if ( !$this->_linkID ) { return false;}
+        $this->queryStr = $str;
+        //释放前次的查询结果
+        if ( $this->queryID ) {$this->free();}
+        $this->queryID = mysqli_query($this->_linkID,$str);
+        if ( false === $this->queryID ) {
+            if ($this->reTest >= 3 || !$this->reTry()){
+                $this->error();
+                return false;
+            }else{
+                $this->reTest++;
+                $this->reConnect();
+                return $this->query($str);
+            }
+        } else {
+            $this->numRows = mysqli_num_rows($this->queryID);
+            return $this->getAll();
+        }
+
+        return $this->clsDriverInstance->query($strSql);
+    }
+    /**
+     * 释放查询结果
+     * @access public
+     */
+    public function free() {
+        $this->clsDriverInstance->free($this->queryID);
+        $this->queryID = null;
+    }
+    /**
+     * 关闭数据库
+     * @access public
+     */
+    public function close() {
+        $this->clsDriverInstance->close($this->_linkID);
+        $this->_linkID = null;
+    }
+
+    /**
+     * 启动事务
+     * @access public
+     * @param string $name 事务的名称
+     * @return boolean
+     */
+    public function startTrans($name='') {
+        $this->initConnect(true);
+        if ( !$this->_linkID ){return false;}
+        //数据rollback 支持
+        if ($this->transTimes == 0) {
+            if (false == mysqli_query($this->_linkID,'START TRANSACTION')){
+                if ($this->reTest >= 3 || !$this->reTry()){
+                    $this->error();
+                    return false;
+                }else{
+                    $this->reTest++;
+                    $this->reConnect();
+                    return $this->startTrans($name);
+                }
+            }
+        }
+        $this->transTimes++;
+        (!$this->transName && $name) && $this->transName = $name;
+        $this->arrSql['trans'][] = "startTrans,Master:{$this->transName},Current:{$name}";
+        return true;
+    }
+
+    /**
+     * 用于非自动提交状态下面的查询提交
+     * @access public
+     * @param string $name 事务的名称
+     * @return boolean
+     */
+    public function commit($name='') {
+        $this->sql['trans'][] = "commit,Master:{$this->transName},Current:{$name}";
+        if (((!$name && !$this->transName)||($this->transName==$name)) && $this->transTimes > 0){
+            $result = mysqli_query($this->_linkID,'COMMIT');
+            if(!$result){
+                $this->error();
+                return false;
+            }
+            $this->sql['trans'][] = "commit finish on:{$name}";
+            $this->transTimes = 0;
+            $this->transName = '';
+        }
+        return true;
+    }
+
+    /**
+     * 事务回滚
+     * @access public
+     * @return boolean
+     */
+    public function rollback() {
+        if ($this->transTimes > 0) {
+            $result = mysqli_query($this->_linkID,'ROLLBACK');
+            $this->transTimes = 0;
+            if(!$result){
+                $this->error();
+                return false;
+            }
+        }
+        return true;
+    }
+
+
     /**
      * 析构方法
      */
@@ -759,16 +898,16 @@ class Db{
         $this->close();
     }
 
-
-	/**以下函数，需要在子类根据不同的数据库完成。*/
-	protected function connect($config=[],$linkNum=0){unset($config);return $linkNum;}//连接数据库，$linkNum，连接编号
-	protected function parseLimit($limit){return $limit;}//limit分析
-	protected function escapeString($str){return addslashes($str);}//SQL指令安全过滤
-	public function execute($sql){return $sql;}//执行SQL语句。
-	public function query($sql){return $sql;}//执行SQL语句。
-    protected function close(){}// 关闭数据库 由驱动类定义
-	protected function free(){}//  释放查询结果 由驱动类定义
-	public function startTrans($name=''){}
-	public function commit($name=''){}
-	public function rollback(){}
+	/**以下函数，需要在子类根据不同的数据库完成。
+        protected function connect($config=[],$linkNum=0){unset($config);return $linkNum;}//连接数据库，$linkNum，连接编号
+        protected function parseLimit($limit){return $limit;}//limit分析
+        protected function escapeString($str){return addslashes($str);}//SQL指令安全过滤
+        public function execute($sql){return $sql;}//执行SQL语句。
+        public function query($sql){return $sql;}//执行SQL语句。
+        protected function close(){}// 关闭数据库 由驱动类定义
+        protected function free(){}//  释放查询结果 由驱动类定义
+        public function startTrans($name=''){}
+        public function commit($name=''){}
+        public function rollback(){}
+    */
 }

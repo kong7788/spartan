@@ -292,11 +292,10 @@ abstract class Controller{
     }
 
     /**
-     * @return null|\Spartan\Core\Db;
+     * @param $_arrConfig
+     * @return null|\Spartan\Lib\Db;
      */
-    public function Db(){
-        static $dbInstance = null;
-        !$dbInstance && $dbInstance = Db::instance();
-        return $dbInstance;
+    public function Db($_arrConfig = []){
+        return \Spt::getInstance('Spartan\\Lib\\Db',$_arrConfig);
     }
 }

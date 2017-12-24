@@ -1,101 +1,51 @@
 <?php
 namespace Spartan\Driver\Db;
-use Spartan\Core\Db;
 
 defined('APP_PATH') or exit();
-/**
- * Mysql数据库驱动
- * @category   Extend
- * @package  Extend
- * @subpackage  Driver.Db
- * @author    liu21st <liu21st@gmail.com>
- */
-class Mysqli extends Db {
 
-    /**
-     * 架构函数 读取数据库配置信息
-     * @access public
-     * @param string $config 数据库配置数组
-     */
-    public function __construct($config='') {
-        if ( !extension_loaded('mysqli') ) {
-	        \St::halt('_NOT_SUPPERT_EXTENSION_mysqli');
-        }
-        if(!empty($config)) {
-            $this->config = $config;
-            if(empty($this->config['params'])) {
-                $this->config['params'] = array();
-            }
-        }
-    }
-
-    public function reConnect(){
-        $this->close();
-        $this->reTest = 0;
-        $this->initConnect(true);
-    }
-
-    public function reTry(){
-        $errNo = mysqli_errno($this->_linkID);
-        if ($errNo == 2013 || $errNo == 2006){
-            return true;
-        }else{
-            return false;
-        }
-    }
+class Mysqli implements Db {
     /**
      * @description 连接数据库方法
-     * @param string $config
-     * @param int $linkNum
+     * @param array $_arrConfig
      * @return int
      */
-    public function connect($config='',$linkNum=0) {
-	    if ( !isset($this->linkID[$linkNum]) ) {
-            if(empty($config)){$config = $this->config;}
-	        $this->linkID[$linkNum] = mysqli_connect($config['HOST'], $config['USER'],$config['PWD'],$config['NAME'],$config['PORT']);
-	        if ( !$this->linkID[$linkNum] || (!empty($config['NAME']) && !mysqli_select_db($this->linkID[$linkNum],$config['NAME'])) ) {
-	            \St::halt($this->error());
-            }
-            //设置编码
-	        //使用UTF8存取数据库
-	        mysqli_query($this->linkID[$linkNum],"SET NAMES '".$config['CHARSET']."'");
-	        //设置 sql_model
-
-	        mysqli_query($this->linkID[$linkNum],"SET sql_mode=''");
-            // 标记连接成功
-            $this->connected    =   true;
-            //注销数据库安全信息
-            //if(1 != C('DB_DEPLOY_TYPE')) unset($this->config);
+    public function connect($_arrConfig = []) {
+        $intLinkID = mysqli_connect(
+            $_arrConfig['HOST'],
+            $_arrConfig['USER'],
+            $_arrConfig['PWD'],
+            $_arrConfig['NAME'],
+            $_arrConfig['PORT']
+        );
+        if (!$intLinkID){
+            \Spt::halt(['sql connect fail',json_encode($_arrConfig)]);
         }
-        return $this->linkID[$linkNum];
+        (!isset($_arrConfig['CHARSET']) || $_arrConfig['CHARSET']) && $_arrConfig['CHARSET'] = 'utf-8';
+        mysqli_query($intLinkID,"SET NAMES '".$_arrConfig['CHARSET']."'");
+        mysqli_query($intLinkID,"SET sql_mode=''");
+        return $intLinkID;
     }
 
     /**
      * 释放查询结果
-     * @access public
+     * @param $intQueryID \mysqli_result
+     * @return bool
      */
-    public function free() {
-	    mysqli_free_result($this->queryID);
-        $this->queryID = null;
+    public function free($intQueryID) {
+	    mysqli_free_result($intQueryID);
+	    return true;
     }
 
     /**
      * 执行查询 返回数据集
      * @access public
-     * @param string $str  sql指令
+     * @param \mysqli $intLinkID 数据库连接
+     * @param string $strSql sql指令
      * @return mixed
      */
-    public function query($str) {
-	    if(0===stripos($str, 'call')){ // 存储过程查询支持
-		    $this->close();
-	    }
-	    $this->initConnect(false);
-	    if ( !$this->_linkID ) { return false;}
-	    $this->queryStr = $str;
-	    //释放前次的查询结果
-	    if ( $this->queryID ) {$this->free();}
-	    $this->queryID = mysqli_query($this->_linkID,$str);
-	    if ( false === $this->queryID ) {
+    public function query($intLinkID,$strSql) {
+        $intQueryID = mysqli_query($intLinkID,$strSql);
+        if ( false === $this->queryID ) {
             if ($this->reTest >= 3 || !$this->reTry()){
                 $this->error();
                 return false;
@@ -104,10 +54,10 @@ class Mysqli extends Db {
                 $this->reConnect();
                 return $this->query($str);
             }
-	    } else {
-		    $this->numRows = mysqli_num_rows($this->queryID);
-		    return $this->getAll();
-	    }
+        } else {
+            $this->numRows = mysqli_num_rows($this->queryID);
+            return $this->getAll();
+        }
     }
 
     /**
@@ -149,71 +99,7 @@ class Mysqli extends Db {
         return $this->lastInsID;
     }
 
-    /**
-     * 启动事务
-     * @access public
-     * @param string $name 事务的名称
-     * @return boolean
-     */
-    public function startTrans($name='') {
-	    $this->initConnect(true);
-	    if ( !$this->_linkID ){return false;}
-	    //数据rollback 支持
-	    if ($this->transTimes == 0) {
-		    if (false == mysqli_query($this->_linkID,'START TRANSACTION')){
-                if ($this->reTest >= 3 || !$this->reTry()){
-                    $this->error();
-                    return false;
-                }else{
-                    $this->reTest++;
-                    $this->reConnect();
-                    return $this->startTrans($name);
-                }
-            }
-	    }
-	    $this->transTimes++;
-        (!$this->transName && $name) && $this->transName = $name;
-        $this->sql['trans'][] = "startTrans,Master:{$this->transName},Current:{$name}";
-	    return true;
-    }
 
-    /**
-     * 用于非自动提交状态下面的查询提交
-     * @access public
-     * @param string $name 事务的名称
-     * @return boolean
-     */
-    public function commit($name='') {
-        $this->sql['trans'][] = "commit,Master:{$this->transName},Current:{$name}";
-        if (((!$name && !$this->transName)||($this->transName==$name)) && $this->transTimes > 0){
-		    $result = mysqli_query($this->_linkID,'COMMIT');
-		    if(!$result){
-			    $this->error();
-			    return false;
-		    }
-            $this->sql['trans'][] = "commit finish on:{$name}";
-            $this->transTimes = 0;
-            $this->transName = '';
-	    }
-	    return true;
-    }
-
-    /**
-     * 事务回滚
-     * @access public
-     * @return boolean
-     */
-    public function rollback() {
-	    if ($this->transTimes > 0) {
-		    $result = mysqli_query($this->_linkID,'ROLLBACK');
-		    $this->transTimes = 0;
-		    if(!$result){
-			    $this->error();
-			    return false;
-		    }
-	    }
-	    return true;
-    }
 
     /**
      * 获得所有的查询数据
@@ -306,11 +192,11 @@ class Mysqli extends Db {
      * @param string $str  SQL指令
      * @return string
      */
-    public function escapeString($str) {
+    public function escapeString($value) {
 	    if(!$this->_linkID) {
             $this->initConnect(true);
 	    }
-        return mysqli_real_escape_string($this->_linkID,$str);
+        return mysqli_real_escape_string($this->_linkID,$value);
     }
 
     /**
@@ -328,10 +214,10 @@ class Mysqli extends Db {
 	 * @param string $key
 	 * @return string
 	 */
-	protected function parseKey(&$key) {
-		$key   =  trim($key);
+	public function parseKey($key) {
+		$key = trim($key);
 		if(!preg_match('/[,\'\"\*\(\)`.\s]/',$key)) {
-			$key = '`'.$key.'`';
+            $key = '`'.$key.'`';
 		}
 		return $key;
 	}

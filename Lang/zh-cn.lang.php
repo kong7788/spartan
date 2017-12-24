@@ -18,6 +18,8 @@ return [
     'template file not allow php'                               => '模版文件不允许使用PHP代码',
     'xml tag error.'                                            => 'XML格式标签错误',
     'not support extension'                                     => '未支持的扩展',
+    'where express error'                                       => 'where条件字段解释失败',
+    'sql connect fail'                                          => '数据库连接失败',
 
     // 上传错误信息
     'unknown upload error'                                      => '未知上传错误！',

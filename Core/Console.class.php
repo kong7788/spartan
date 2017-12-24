@@ -9,7 +9,7 @@ defined('APP_PATH') OR die('404 Not Found');
  * @date 14-5-24 下午12:03
  */
 
-abstract class Controller{
+abstract class Console{
     public $sessionId = '';
     public $expire = '';
     private $cachePath = '/Runtime/Cache/';
@@ -290,11 +290,10 @@ abstract class Controller{
         }
     }
     /**
-     * @return null|\Spartan\Driver\Db\Mysql|\Spartan\Driver\Db\Pgsql;
+     * @param $_arrConfig
+     * @return \Spartan\Lib\Db;
      */
-    public function Db(){
-        static $dbInstance = null;
-        !$dbInstance && $dbInstance = Db::instance();
-        return $dbInstance;
+    public function Db($_arrConfig){
+        return \Spt::getInstance('Spartan\\Lib\\Db',$_arrConfig);
     }
 }
