@@ -5,6 +5,7 @@ defined('APP_PATH') or exit();
 
 interface Db{
     public function __construct($_arrConfig = []);//初始化
+    public function setConfig($_arrConfig = []);//设置config
     public function connect();//连接数据库
     public function parseKey($key);
     public function escapeString($key,$intLinkID = null);

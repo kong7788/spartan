@@ -22,6 +22,7 @@ return [
     'not support extension'                                     => '未支持的扩展',
     'where express error'                                       => 'where条件字段解释失败',
     'sql connect fail'                                          => '数据库连接失败',
+    'sql error'                                                 => 'SQL出错',
 
     // 上传错误信息
     'unknown upload error'                                      => '未知上传错误！',

@@ -12,7 +12,11 @@ class Mysqli implements Db {
      * @param array $_arrConfig
      */
     public function __construct($_arrConfig = []){
-        (!isset($_arrConfig['CHARSET']) || $_arrConfig['CHARSET']) && $_arrConfig['CHARSET'] = 'utf-8';
+        $this->setConfig($_arrConfig);
+    }
+
+    public function setConfig($_arrConfig = []){
+        (!isset($_arrConfig['CHARSET']) || !$_arrConfig['CHARSET']) && $_arrConfig['CHARSET'] = 'utf8';
         $this->arrConfig = $_arrConfig;
     }
 
@@ -106,7 +110,7 @@ class Mysqli implements Db {
 
     /**
      * 数据库错误信息
-     * 并显示当前的SQL语句
+     * @param $intLinkID
      * @return string
      */
     public function error($intLinkID) {

@@ -39,7 +39,7 @@ class Spt {
         if (self::$arrConfig['SERVER']){
             self::runServer();
         }else{
-            if (C('SESSION_HANDLER') && C('SESSION_HANDLER.NAME')){
+            if (C('SESSION_HANDLER') && C('SESSION_HANDLER.NAME') && C('SESSION_HANDLER.OPEN') === true){
                 ini_set('session.save_handler',C('SESSION_HANDLER.NAME'));
                 ini_set('session.save_path',C('SESSION_HANDLER.PATH'));
             }
@@ -263,7 +263,8 @@ class Spt {
      * @param string|array $info
      */
     public static function halt($info,$title = 'system error'){
-        $error = Array('title'=>self::getLang($title),'message'=>is_array($info)?implode(':',$info):$info);
+        list($info1,$info2) = is_array($info)?$info:[$info,''];
+        $error = Array('title'=>self::getLang($title),'message'=>self::getLang($info1).':'.$info2);
         $trace = debug_backtrace();
         $error['file'] = $trace[0]['file'];
         $error['line'] = $trace[0]['line'];

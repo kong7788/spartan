@@ -18,7 +18,7 @@ class Db{
     private $linkID = null;//当前连接ID
     private $numRows = 0;// 返回或者影响记录数
     private $transTimes = 0;// 事务指令数
-    private $error = '';// 错误信息
+    private $strError = '';// 错误信息
 
     /**
 	 * 取得数据库类实例
@@ -57,8 +57,33 @@ class Db{
      * @param boolean $bolMaster 主副服务器
      * @return void
      */
-    private function initConnect($bolMaster = true) {
-        !$this->linkID && $this->linkID = $this->connect();
+    public function initConnect($bolMaster = true) {
+        if ( isset($this->arrConfig['DEPLOY_TYPE']) && $this->arrConfig['DEPLOY_TYPE'] ){
+            $this->linkID = $this->multiConnect($bolMaster);
+        }else{
+            !$this->linkID && $this->linkID = $this->connect();
+        }
+    }
+
+    /**
+     * 主从数据库
+     * @param boolean $bolMaster
+     * @return mixed
+     */
+    public function multiConnect($bolMaster = true){
+        if ($bolMaster){
+            return $this->clsDriverInstance->connect();
+        }
+
+        return $this->clsDriverInstance->connect();
+    }
+
+    /**
+     * @description 连接数据库方法
+     * @return mixed
+     */
+    public function connect() {
+        return $this->clsDriverInstance->connect();
     }
 
     /**
@@ -77,14 +102,6 @@ class Db{
      */
     public function isReTry(){
         return $this->clsDriverInstance->isReTry($this->linkID);
-    }
-
-    /**
-     * @description 连接数据库方法
-     * @return mixed
-     */
-    public function connect() {
-        return $this->clsDriverInstance->connect();
     }
 
     /**
@@ -206,7 +223,7 @@ class Db{
 		if($this->arrConfig['PREFIX'] && stripos($table,$this->arrConfig['PREFIX']) !== 0){
 			$table = $this->arrConfig['PREFIX'] . $table;
 		}
-		return str_replace('@.',$this->arrConfig[''],$table);
+		return str_replace('@.',$this->arrConfig['PREFIX'],$table);
 	}
 
     /**
@@ -723,12 +740,20 @@ class Db{
      * @return string
      */
     public function getError() {
-        return $this->error;
-        //$this->error .= "\n [ SQL语句 ] : ".$this->queryStr;
+        return $this->strError;
     }
 
+    /**
+     * 数据库错误信息
+     * 并显示当前的SQL语句
+     */
     private function error(){
-
+        $strError = $this->clsDriverInstance->error($this->linkID);
+        $this->strError .= $this->queryStr;
+        $this->strError .= "\n [ 错误信息 ] :" . $strError;
+        if (\Spt::$arrConfig['DEBUG'] === true){
+            \Spt::halt(['sql error',$this->strError]);
+        }
     }
 
     /**
@@ -866,7 +891,6 @@ class Db{
         }
         return true;
     }
-
 
     /**
      * 析构方法

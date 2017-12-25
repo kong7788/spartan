@@ -20,6 +20,7 @@ return Array(
         'CHARSET'=>'utf8',//数据库编码默认采用utf8
     ),
     'SESSION_HANDLER'=>Array(//Session服务器，如果启用，可以共享session
+        'OPEN'=>false,
         'NAME'=>'redis',
         'PATH'=>'tcp://120.78.80.218:63798?auth=foobaredf23fdafasflxvxz.vaf;jdsafi2pqfjaf;;dsafj;sajfsapfisapjf',
     ),
