@@ -109,7 +109,7 @@ class Template{
             $tmpContent =  $templateFile;
         }
         //根据模版文件名定位缓存文件
-        $tmpCacheFile = APP_PATH.$this->cachePath.md5($templateFile).'.php';
+        $tmpCacheFile = APP_PATH.$this->cachePath.md5($templateFile).'.cache';
         //编译模板内容
         $this->compiler($tmpContent);
         File::instance()->put($tmpCacheFile,trim($tmpContent));

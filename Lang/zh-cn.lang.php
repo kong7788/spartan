@@ -17,6 +17,8 @@ return [
     'cached directory has no write permissions'                 => '缓存目录没有写入权限',
     'template file not allow php'                               => '模版文件不允许使用PHP代码',
     'xml tag error.'                                            => 'XML格式标签错误',
+    'the database does not configure "type"'                    => '没有配置数据库的相应类型。[type]',
+    'db type class not exiting'                                 => '未实现的数据库处理类',
     'not support extension'                                     => '未支持的扩展',
     'where express error'                                       => 'where条件字段解释失败',
     'sql connect fail'                                          => '数据库连接失败',

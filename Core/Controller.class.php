@@ -116,7 +116,7 @@ abstract class Controller{
         // 编译并加载模板文件，缓存有效,载入模版缓存文件
         if((!empty($content)&&$this->checkContentCache($content)) || $this->checkCache($templateFile)){
             File::instance()->load(
-                APP_PATH.$this->cachePath.md5($content?$content:$templateFile).'.php',
+                APP_PATH.$this->cachePath.md5($content?$content:$templateFile).'.cache',
                 $this->tVar
             );
         }else{
@@ -266,7 +266,7 @@ abstract class Controller{
      */
     private function checkCache($tmpTemplateFile) {
         if (!C('TMPL_CACHE_ON') || \Spt::$arrConfig['DEBUG']){return false;} //优先对配置设定检测
-        $tmpCacheFile = APP_PATH.$this->cachePath.md5($tmpTemplateFile).'.php';
+        $tmpCacheFile = APP_PATH.$this->cachePath.md5($tmpTemplateFile).'.cache';
         if(!File::instance()->has($tmpCacheFile)){
             return false;
         }elseif (filemtime($tmpTemplateFile)>File::instance()->get($tmpCacheFile,'mtime')){// 模板文件如果有更新则缓存需要更新
@@ -284,7 +284,7 @@ abstract class Controller{
      * @return boolean
      */
     private function checkContentCache($tmpContent) {
-        if(File::instance()->has(APP_PATH.$this->cachePath.md5($tmpContent).'.php')){
+        if(File::instance()->has(APP_PATH.$this->cachePath.md5($tmpContent).'.cache')){
             return true;
         }else{
             return false;
@@ -292,10 +292,9 @@ abstract class Controller{
     }
 
     /**
-     * @param $_arrConfig
      * @return null|\Spartan\Lib\Db;
      */
-    public function Db($_arrConfig = []){
-        return \Spt::getInstance('Spartan\\Lib\\Db',$_arrConfig);
+    public function Db(){
+        return \Spt::getInstance('Spartan\\Lib\\Db');
     }
 }

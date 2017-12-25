@@ -10,7 +10,8 @@ class IndexController extends Controller {
         $this->display();
     }
 
-}{Controller}
+}
+{Controller}
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -29,7 +30,7 @@ class IndexController extends Controller {
 <body>
     <div style="padding: 24px 48px;">
         <h1>:)</h1>
-        <h2>欢迎使用Spartan.</h2>
+        <h2>欢迎使用Spartan，项目已经初始化完成。</h2>
         <p>项目地址：<a href="https://github.com/langshen/spartan" target="_blank">https://github.com/langshen/spartan</a></p>
     </div>
 </body>

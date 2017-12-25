@@ -52,6 +52,7 @@ class Spt {
      */
     private static function createAppDir() {
         $arrDir = Array(
+            APP_ROOT.'Common'.NS,
             APP_PATH,
             APP_PATH.'Controller'.NS,
             APP_PATH.'Common'.NS,
@@ -65,15 +66,31 @@ class Spt {
         }else{
             $arrDir[] = APP_PATH.'Logic'.NS;
         }
-        $bloCreate = false;
+        $bolCreate = false;
         foreach ($arrDir as $dir){
-            !is_dir($dir) && ($bloCreate = true && mkdir($dir,0755,true));
+            !is_dir($dir) && ($bolCreate = true && mkdir($dir,0755,true));
         }
-        if ($bloCreate){//初始化首页
-            $arrTempContent = explode('{Controller}',file_get_contents(FRAME_PATH.'Tpl'.NS.'Default_index.tpl'));
-            file_put_contents(APP_PATH.'Controller'.NS.'IndexController'.CLASS_EXT,str_replace('{App_NAME}',APP_NAME,$arrTempContent[0]));
-            file_put_contents(APP_PATH.'View'.NS.'Index'.NS.'index.html',$arrTempContent[1]);
-        }
+        $bolCreate && self::initAppConfig();
+    }
+
+    /**
+     * 初始化项目的某些内容
+     */
+    private static function initAppConfig(){
+        //初始化首页的类和模版
+        list($strClass,$strHtml) = explode('{Controller}',file_get_contents(FRAME_PATH.'Tpl'.NS.'default_index.tpl'));
+        $strFile = APP_PATH.'Controller'.NS.'IndexController'.CLASS_EXT;
+        !is_file($strFile) && file_put_contents($strFile,str_replace('{App_NAME}',APP_NAME,trim($strClass,PHP_EOL)));
+        $strFile = APP_PATH.'View'.NS.'Index'.NS.'index.html';
+        !is_file($strFile) && file_put_contents($strFile,trim($strHtml,PHP_EOL));
+        //初始化配置文件
+        list($strBaseConfig,$strConfig,$strAppConfig) = explode('{Config}',file_get_contents(FRAME_PATH.'Tpl'.NS.'default_config.tpl'));
+        $strFile = APP_ROOT.'Common'.NS.'BaseConfig.php';
+        !is_file($strFile) && file_put_contents($strFile,trim($strBaseConfig,PHP_EOL));
+        $strFile = APP_ROOT.'Common'.NS.'Config.php';
+        !is_file($strFile) && file_put_contents($strFile,trim($strConfig,PHP_EOL));
+        $strFile = APP_PATH.'Common'.NS.'Config.php';
+        !is_file($strFile) && file_put_contents($strFile,trim($strAppConfig,PHP_EOL));
     }
 
     /**
@@ -88,16 +105,16 @@ class Spt {
             FRAME_PATH.'Common'.NS.'Config.php',
             APP_PATH.'Common'.NS.'Config.php'
         );
-        foreach ($arrFile as $file){
-            if (!is_file($file)){
+        foreach ($arrFile as $strFile){
+            if (!is_file($strFile)){
                 continue;
             }
-            if (stripos($file,'Config.php') > 0){
-                C(include($file));
-            }elseif (stripos($file,'.lang.php') > 0){
-                self::$arrLang = array_merge(self::$arrLang,include($file));
+            if (stripos($strFile,'Config.php') > 0){
+                C(include($strFile));
+            }elseif (stripos($strFile,'.lang.php') > 0){
+                self::$arrLang = array_merge(self::$arrLang,include($strFile));
             }else{
-                include($file);
+                include($strFile);
             }
         }
         if (self::$arrConfig['SERVER']){
@@ -268,7 +285,7 @@ class Spt {
             }
         }else{
             $error['exception'] = '<p>' . implode('</p><p>',$arrException) . '</p>';
-            include(FRAME_PATH.'Tpl'.NS.'Exception.tpl');
+            include(FRAME_PATH.'Tpl'.NS.'exception.tpl');
         }
         exit(0);
     }

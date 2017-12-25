@@ -4,25 +4,34 @@ namespace Spartan\Driver\Db;
 defined('APP_PATH') or exit();
 
 class Mysqli implements Db {
+    private $arrConfig = [];//数据库配置
+
+    /**
+     * 初始化配置
+     * Mysqli constructor.
+     * @param array $_arrConfig
+     */
+    public function __construct($_arrConfig = []){
+        (!isset($_arrConfig['CHARSET']) || $_arrConfig['CHARSET']) && $_arrConfig['CHARSET'] = 'utf-8';
+        $this->arrConfig = $_arrConfig;
+    }
 
     /**
      * @description 连接数据库方法
-     * @param array $_arrConfig
      * @return int
      */
-    public function connect($_arrConfig = []) {
+    public function connect() {
         $intLinkID = mysqli_connect(
-            $_arrConfig['HOST'],
-            $_arrConfig['USER'],
-            $_arrConfig['PWD'],
-            $_arrConfig['NAME'],
-            $_arrConfig['PORT']
+            $this->arrConfig['HOST'],
+            $this->arrConfig['USER'],
+            $this->arrConfig['PWD'],
+            $this->arrConfig['NAME'],
+            $this->arrConfig['PORT']
         );
         if (!$intLinkID){
-            \Spt::halt(['sql connect fail',json_encode($_arrConfig)]);
+            \Spt::halt(['sql connect fail',json_encode($this->arrConfig)]);
         }
-        (!isset($_arrConfig['CHARSET']) || $_arrConfig['CHARSET']) && $_arrConfig['CHARSET'] = 'utf-8';
-        mysqli_query($intLinkID,"SET NAMES '".$_arrConfig['CHARSET']."'");
+        mysqli_query($intLinkID,"SET NAMES '".$this->arrConfig['CHARSET']."'");
         mysqli_query($intLinkID,"SET sql_mode=''");
         return $intLinkID;
     }
@@ -39,11 +48,20 @@ class Mysqli implements Db {
     /**
      * 关闭数据库
      * @access public
+     * @param $intLinkID
      */
     public function close($intLinkID) {
         $intLinkID && @mysqli_close($intLinkID);
     }
 
+    /**
+     * @param $intLinkID
+     * @return bool
+     */
+    public function isReTry($intLinkID){
+        $intErrNo = mysqli_errno($intLinkID);
+        return ($intErrNo == 2013 || $intErrNo == 2006)?true:false;
+    }
     /**
      * 执行查询 返回数据集
      * @access public

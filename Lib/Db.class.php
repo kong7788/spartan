@@ -3,25 +3,22 @@ namespace Spartan\Lib;
 defined('APP_PATH') OR die('404 Not Found');
 
 class Db{
-    protected $numRows    = 0;// 返回或者影响记录数
-    protected $numCols    = 0;// 返回字段数
-    protected $transTimes = 0;// 事务指令数
-    protected $error      = '';// 错误信息
-    protected $linkID     = Array();// 数据库连接ID 支持多个连接
-    protected $_linkID    = null;// 当前连接ID
-
     private $arrConfig = [];//连接配置
     private $transName = '';//事务名称
-    private $reTest   = 0;//重连接次数
+    private $reTest = 0;//重连接次数
     /** @var null|\Spartan\Driver\Db\Mysqli */
     private $clsDriverInstance = null;//
     private $arrComparison = ['eq'=>'=','neq'=>'<>','gt'=>'>','egt'=>'>=','lt'=>'<','elt'=>'<=','notlike'=>'NOT LIKE','like'=>'LIKE','in'=>'IN','notin'=>'NOT IN'];// 数据库表达式
     private $arrSql = [];//所有SQL指令
     private $bolBuild = false;//是否为建造SQL模式
-    private $queryStr = '';// 当前SQL指令
-    private $lastInsID = 0;// 最后插入ID
-    private $queryID = 0;// 当前查询ID
-    private $connected  = false;// 是否已经连接数据库
+    private $queryStr = '';//当前SQL指令
+    private $lastInsID = 0;//最后插入ID
+    /** @var $queryID \mysqli_result */
+    private $queryID = 0;//当前查询ID
+    private $linkID = null;//当前连接ID
+    private $numRows = 0;// 返回或者影响记录数
+    private $transTimes = 0;// 事务指令数
+    private $error = '';// 错误信息
 
     /**
 	 * 取得数据库类实例
@@ -39,38 +36,39 @@ class Db{
      */
     public function __construct($_arrConfig = []) {
         $_arrConfig = array_merge(C('DB'),$_arrConfig);
-        if ( !extension_loaded($_arrConfig['TYPE']) ) {
+        if (!isset($_arrConfig['TYPE']) || !$_arrConfig['TYPE']){
+            \Spt::halt(['the database does not configure "type"']);
+        }
+        if (!extension_loaded($_arrConfig['TYPE'])) {
             \Spt::halt(['not support extension',$_arrConfig['TYPE']]);
         }
-        $_arrConfig['driver'] = ucfirst(strtolower($_arrConfig['driver']));
         !isset($_arrConfig['PREFIX']) && $_arrConfig['PREFIX'] = '';
-        $this->clsDriverInstance = \Spt::getInstance('Spartan\\Driver\\Db\\'.$_arrConfig['driver'],$_arrConfig);
+        $clsDbType = 'Spartan\\Driver\\Db\\'.ucfirst(strtolower($_arrConfig['TYPE']));
+        if (!class_exists($clsDbType)){
+            \Spt::halt(['db type class not exiting',$clsDbType]);
+        }
+        $this->clsDriverInstance = \Spt::getInstance($clsDbType,$_arrConfig);
         $this->arrConfig = $_arrConfig;
     }
 
     /**
      * 初始化数据库连接
      * @access protected
-     * @param boolean $bolMaster 主服务器
+     * @param boolean $bolMaster 主副服务器
      * @return void
      */
-    protected function initConnect($bolMaster = true) {
-        if(isset($this->arrConfig['DEPLOY_TYPE']) && $this->arrConfig['DEPLOY_TYPE'] == 1){//采用分布式数据库
-	        $this->_linkID = $this->multiConnect($bolMaster);
-        }else{// 默认单数据库
-	        if (!$this->connected){
-	            $this->_linkID = $this->connect();
-	        }
-        }
+    private function initConnect($bolMaster = true) {
+        !$this->linkID && $this->linkID = $this->connect();
     }
 
     /**
      * 重新连接数据库，累计次数
+     * @param bool $bolMaster
      */
-    public function reConnect(){
+    public function reConnect($bolMaster = true){
         $this->close();
         $this->reTest = 0;
-        $this->initConnect(true);
+        $this->initConnect($bolMaster);
     }
 
     /**
@@ -78,69 +76,24 @@ class Db{
      * @return bool
      */
     public function isReTry(){
-        $errNo = mysqli_errno($this->_linkID);
-        if ($errNo == 2013 || $errNo == 2006){
-            return true;
-        }else{
-            return false;
-        }
+        return $this->clsDriverInstance->isReTry($this->linkID);
     }
 
     /**
      * @description 连接数据库方法
-     * @param int $linkNum
+     * @return mixed
      */
-    public function connect($linkNum = 0) {
-        $this->_linkID[$linkNum] = $this->clsDriverInstance->connect();
-    }
-
-
-
-
-    /**
-     * 连接分布式服务器
-     * @access protected
-     * @param boolean $master 主服务器
-     * @return int
-     */
-    protected function multiConnect($master=false) {
-	    $_config = Array();
-	    foreach ($this->arrConfig as $key=>$val){
-            $_config[$key] = explode(',',$val);
-        }
-        // 数据库读写是否分离
-        if(C('DB.RW_SEPARATE')){
-            // 主从式采用读写分离
-            if($master)// 主服务器写入
-                $r  =   floor(mt_rand(0,C('DB.MASTER_NUM')-1));
-            else{
-                if(is_numeric(C('DB.SLAVE_NO'))) {// 指定服务器读
-                    $r = C('DB.SLAVE_NO');
-                }else{// 读操作连接从服务器,每次随机连接的数据库
-                    $r = floor(mt_rand(C('DB.MASTER_NUM'),count($_config['HOST'])-1));
-                }
-            }
-        }else{// 读写操作不区分服务器// 每次随机连接的数据库
-            $r = floor(mt_rand(0,count($_config['HOST'])-1));
-        }
-        $db_config = array(
-            'USER'  =>  isset($_config['USER'][$r])?$_config['USER'][$r]:$_config['USER'][0],
-            'PWD'  =>  isset($_config['PWD'][$r])?$_config['PWD'][$r]:$_config['PWD'][0],
-            'HOST'  =>  isset($_config['HOST'][$r])?$_config['HOST'][$r]:$_config['HOST'][0],
-            'PORT'  =>  isset($_config['PORT'][$r])?$_config['PORT'][$r]:$_config['PORT'][0],
-            'NAME'  =>  isset($_config['NAME'][$r])?$_config['NAME'][$r]:$_config['NAME'][0],
-            'CHARSET'   =>  isset($_config['CHARSET'][$r])?$_config['CHARSET'][$r]:$_config['CHARSET'][0],
-        );
-        return $this->connect($db_config,$r);
+    public function connect() {
+        return $this->clsDriverInstance->connect();
     }
 
     /**
      * 设置锁机制
-     * @param $lock
+     * @param $bolLock
      * @return string
      */
-    private function parseLock($lock = false) {
-        return $lock ? ' FOR UPDATE ' : '';
+    private function parseLock($bolLock = false) {
+        return $bolLock ? ' FOR UPDATE ' : '';
     }
 
     /**
@@ -198,8 +151,7 @@ class Db{
      * @return string
      */
     private function escapeString($value){
-        //TODO
-        return $this->clsDriverInstance->escapeString($value);
+        return $this->clsDriverInstance->escapeString($value,$this->linkID);
     }
 
     /**
@@ -529,11 +481,11 @@ class Db{
 
 	/**
 	 * 提取所有的SQL语句。
-	 * @param string $type
+	 * @param string $strType
 	 * @return array
 	 */
-    public function getAllSql($type = ''){
-		return isset($this->arrSql[$type])?$this->arrSql[$type]:$this->arrSql;
+    public function getAllSql($strType = ''){
+		return isset($this->arrSql[$strType])?$this->arrSql[$strType]:$this->arrSql;
 	}
 
    /**
@@ -775,16 +727,22 @@ class Db{
         //$this->error .= "\n [ SQL语句 ] : ".$this->queryStr;
     }
 
+    private function error(){
+
+    }
+
+    /**
+     * 执行一下有结果的SQL
+     * @param $strSql
+     * @return bool|int
+     */
     public function execute($strSql){
-        $this->initConnect(true);
-        if ( !$this->_linkID ){
-            return false;
-        }
+        !$this->linkID && $this->initConnect(true);
         $this->queryStr = $strSql;
         $this->queryID && $this->free();//释放前次的查询结果
-        $result = $this->clsDriverInstance->query($this->_linkID,$strSql);
+        $result = $this->clsDriverInstance->query($this->linkID,$strSql);
         if ( false === $result) {
-            if ($this->reTest >= 3 || !$this->reTry()){
+            if ($this->reTest >= 3 || !$this->isReTry()){
                 $this->error();
                 return false;
             }else{
@@ -793,22 +751,24 @@ class Db{
                 return $this->execute($strSql);
             }
         } else {
-            $this->numRows = $this->clsDriverInstance->getAffectedRows($this->_linkID);
-            $this->lastInsID = $this->clsDriverInstance->getInsertId($this->_linkID);
+            $this->numRows = $this->clsDriverInstance->getAffectedRows($this->linkID);
+            $this->lastInsID = $this->clsDriverInstance->getInsertId($this->linkID);
             return $this->numRows;
         }
     }
 
+    /**
+     * 执行一个没有记录集的SQL
+     * @param $strSql
+     * @return array|bool
+     */
     public function query($strSql){
-        $this->initConnect(false);
-        if ( !$this->_linkID ) {
-            return false;
-        }
+        !$this->linkID && $this->initConnect(true);
         $this->queryStr = $strSql;
         $this->queryID && $this->free();//释放前次的查询结果
-        $this->queryID = $this->clsDriverInstance->query($this->_linkID,$strSql);
+        $this->queryID = $this->clsDriverInstance->query($this->linkID,$strSql);
         if ( false === $this->queryID ) {
-            if ($this->reTest >= 3 || !$this->reTry()){
+            if ($this->reTest >= 3 || !$this->isReTry()){
                 $this->error();
                 return false;
             }else{
@@ -821,6 +781,7 @@ class Db{
             return $this->clsDriverInstance->getAll($this->queryID);
         }
     }
+
     /**
      * 释放查询结果
      * @access public
@@ -829,61 +790,59 @@ class Db{
         $this->clsDriverInstance->free($this->queryID);
         $this->queryID = null;
     }
+
     /**
      * 关闭数据库
      * @access public
      */
     public function close() {
-        $this->clsDriverInstance->close($this->_linkID);
-        $this->_linkID = null;
-        $this->linkID = [];
-        $this->connected = false;
+        $this->clsDriverInstance->close($this->linkID);
+        $this->linkID = null;
         $this->reTest = 0;
     }
 
     /**
-     * 启动事务
+     * 启动事务,数据rollback 支持
      * @access public
-     * @param string $name 事务的名称
+     * @param string $strName 事务的名称
      * @return boolean
      */
-    public function startTrans($name='') {
-        $this->initConnect(true);
-        if ( !$this->_linkID ){return false;}
-        //数据rollback 支持
+    public function startTrans($strName = '') {
+        !$this->linkID && $this->initConnect(true);
         if ($this->transTimes == 0) {
-            if (false == mysqli_query($this->_linkID,'START TRANSACTION')){
-                if ($this->reTest >= 3 || !$this->reTry()){
+            if (false == $this->clsDriverInstance->query($this->linkID,'START TRANSACTION')){
+                if ($this->reTest >= 3 || !$this->isReTry()){
                     $this->error();
                     return false;
                 }else{
                     $this->reTest++;
                     $this->reConnect();
-                    return $this->startTrans($name);
+                    return $this->startTrans($strName);
                 }
             }
         }
         $this->transTimes++;
-        (!$this->transName && $name) && $this->transName = $name;
-        $this->arrSql['trans'][] = "startTrans,Master:{$this->transName},Current:{$name}";
+        (!$this->transName && $strName) && $this->transName = $strName;
+        $this->arrSql['trans'][] = "startTrans,Master:{$this->transName},Current:{$strName}";
         return true;
     }
 
     /**
      * 用于非自动提交状态下面的查询提交
      * @access public
-     * @param string $name 事务的名称
+     * @param string $strName 事务的名称
      * @return boolean
      */
-    public function commit($name='') {
-        $this->sql['trans'][] = "commit,Master:{$this->transName},Current:{$name}";
-        if (((!$name && !$this->transName)||($this->transName==$name)) && $this->transTimes > 0){
-            $result = mysqli_query($this->_linkID,'COMMIT');
+    public function commit($strName = '') {
+        $this->arrSql['trans'][] = "commit,Master:{$this->transName},Current:{$strName}";
+        if (((!$strName && !$this->transName)||($this->transName == $strName)) && $this->transTimes > 0){
+            !$this->linkID && $this->initConnect(true);
+            $result = $this->clsDriverInstance->query($this->linkID,'COMMIT');
             if(!$result){
                 $this->error();
                 return false;
             }
-            $this->sql['trans'][] = "commit finish on:{$name}";
+            $this->arrSql['trans'][] = "commit finish on:{$strName}";
             $this->transTimes = 0;
             $this->transName = '';
         }
@@ -896,8 +855,9 @@ class Db{
      * @return boolean
      */
     public function rollback() {
-        if ($this->transTimes > 0) {
-            $result = mysqli_query($this->_linkID,'ROLLBACK');
+        if ($this->transTimes > 0){
+            !$this->linkID && $this->initConnect(true);
+            $result = $this->clsDriverInstance->query($this->linkID,'ROLLBACK');
             $this->transTimes = 0;
             if(!$result){
                 $this->error();
@@ -917,17 +877,4 @@ class Db{
         }
         $this->close();
     }
-
-	/**以下函数，需要在子类根据不同的数据库完成。
-        protected function connect($config=[],$linkNum=0){unset($config);return $linkNum;}//连接数据库，$linkNum，连接编号
-        protected function parseLimit($limit){return $limit;}//limit分析
-        protected function escapeString($str){return addslashes($str);}//SQL指令安全过滤
-        public function execute($sql){return $sql;}//执行SQL语句。
-        public function query($sql){return $sql;}//执行SQL语句。
-        protected function close(){}// 关闭数据库 由驱动类定义
-        protected function free(){}//  释放查询结果 由驱动类定义
-        public function startTrans($name=''){}
-        public function commit($name=''){}
-        public function rollback(){}
-    */
 }
