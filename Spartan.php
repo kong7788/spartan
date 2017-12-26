@@ -53,6 +53,8 @@ class Spt {
     private static function createAppDir() {
         $arrDir = Array(
             APP_ROOT.'Common'.NS,
+            APP_ROOT.'Dal'.NS,
+            APP_ROOT.'Logic'.NS,
             APP_PATH,
             APP_PATH.'Controller'.NS,
             APP_PATH.'Common'.NS,
@@ -91,6 +93,12 @@ class Spt {
         !is_file($strFile) && file_put_contents($strFile,trim($strConfig,PHP_EOL));
         $strFile = APP_PATH.'Common'.NS.'Config.php';
         !is_file($strFile) && file_put_contents($strFile,trim($strAppConfig,PHP_EOL));
+        //初始化Dal/Logic目录
+        list($strDal,$strLogic) = explode('{README}',file_get_contents(FRAME_PATH.'Tpl'.NS.'default_readme.tpl'));
+        $strFile = APP_ROOT.'Dal'.NS.'README.md';
+        !is_file($strFile) && file_put_contents($strFile,trim($strDal,PHP_EOL));
+        $strFile = APP_ROOT.'Logic'.NS.'README.md';
+        !is_file($strFile) && file_put_contents($strFile,trim($strLogic,PHP_EOL));
     }
 
     /**
