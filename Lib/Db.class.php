@@ -2,6 +2,11 @@
 namespace Spartan\Lib;
 defined('APP_PATH') OR die('404 Not Found');
 
+/**
+ * 数据库操作类
+ * Class Db
+ * @package Spartan\Lib
+ */
 class Db{
     private $arrConfig = [];//连接配置
     private $transName = '';//事务名称
@@ -102,6 +107,321 @@ class Db{
      */
     public function isReTry(){
         return $this->clsDriverInstance->isReTry($this->linkID);
+    }
+
+    /**
+     * 插入记录
+     * @history 1、insert 没有锁表操作 by singer
+     * @param string $table 表名
+     * @param mixed $data 数据
+     * @param array $options 参数表达式
+     * @return false | integer
+     */
+    public function insert($table,$data,$options = []) {
+        $values = $fields = [];
+        $options['table'] = $table;
+        $replace = isset($options['replace'])?$options['replace']:false;//是否replace
+        foreach ($data as $key=>$val){
+            if(is_array($val) && 'exp' == $val[0]){
+                $fields[]   =  $this->parseKey($key);
+                $values[]   =  $val[1];
+            }elseif(is_scalar($val) || is_null($val)) { // 过滤非标量数据
+                $fields[]   =  $this->parseKey($key);
+                $values[]   =  $this->parseValue($val);
+            }
+        }
+        $sql = ($replace?'REPLACE':'INSERT').' INTO '.$this->parseTable($options['table']).
+            ' ('.implode(',', $fields).') VALUES ('.implode(',', $values).')';
+        $sql .= $this->parseComment(!empty($options['comment'])?$options['comment']:'');
+        if(!in_array($table,['sys_sql_log'])){
+            $this->arrSql['insert'][] = $sql;
+        }
+        if($this->bolBuild){
+            return false;
+        }
+        $result = $this->execute($sql);
+        if(false !== $result ){
+            $result = $this->getLastInsID();
+        }
+        return $result;
+    }
+
+    /**
+     * 更新记录,
+     * @history 1、update没有锁表操作 by singer
+     * @param string $table 表名
+     * @param mixed $data 数据
+     * @param array $options 表达式
+     * @return false | integer
+     */
+    public function update($table,$data,$options){
+        if(!isset($options['where'])){//防止误操作，条件不能为空，不使用条件时，where==false
+            return false;
+        }elseif(isset($options['where']) && $options['where'] == false){
+            $options['where'] = '';
+        }
+        $table = isset($options['alias'])?Array($table,$options['alias']):$table;
+        $strSql = 'UPDATE '
+            .$this->parseTable($table)
+            .$this->parseSet($data)
+            .$this->parseWhere(!empty($options['where'])?$options['where']:'')
+            .$this->parseLimit(!empty($options['limit'])?$options['limit']:'')
+            .$this->parseComment(!empty($options['comment'])?$options['comment']:'');
+        $this->arrSql['update'][] = $strSql;
+        if($this->bolBuild){
+            return false;
+        }
+        return $this->execute($strSql);
+    }
+
+    /**
+     * 删除记录
+     * @param string $table 表名
+     * @param array $options 表达式
+     * @return false | integer
+     */
+    public function delete($table,$options = []){
+        if(!isset($options['where'])){//防止误操作，条件不能为空，不使用条件时，where==false
+            return false;
+        }elseif(isset($options['where']) && $options['where'] == false){
+            $options['where'] = '';
+        }
+        $this->initConnect(false);
+        $strSql = 'DELETE '.'FROM '
+            .$this->parseTable($table)
+            .$this->parseWhere(!empty($options['where'])?$options['where']:'')
+            .$this->parseComment(!empty($options['comment'])?$options['comment']:'');
+        $this->arrSql['delete'][] = $strSql;
+        if ($this->bolBuild){
+            return false;
+        }
+        return $this->execute($strSql);
+    }
+
+    /**
+     * 选择查询语句
+     * @param $table
+     * @param array $options
+     * @return mixed
+     */
+    public function select($table,$options = []){
+        $options['table'] = isset($options['alias'])?Array($table,$options['alias']):$table;
+        $strSql = $this->buildSelectSql($options);
+        $this->arrSql['select'][] = $strSql;
+        return $this->query($strSql);
+    }
+
+    /**
+     * 选择一条记录的查询语句
+     * @param $table
+     * @param array $options
+     * @param string $math 是否运算
+     * @return mixed
+     */
+    public function find($table,$options = [],$math = ''){
+        if ($math){
+            $math = explode('(',$math);//count(id). sum(money). min(id)
+            if (!in_array($math[0],['count','sum','min','max','avg'])){
+                $math = null;
+            }else{
+                $math[1] = (isset($math[1]) && $math[1])?substr($math[1],-1):'*';
+                $options['field'] = "$math[0]($math[1]) as tmp";
+                unset($options['order']);
+            }
+            unset($options['lock']);
+        }
+        unset($options['page']);
+        $options['limit'] = 1;
+        $options['table'] = isset($options['alias'])?Array($table,$options['alias']):$table;
+        $strSql = $this->buildSelectSql($options);
+        $this->arrSql['select'][] = $strSql;
+        $result = $this->query($strSql);
+        if(false === $result){
+            return false;
+        }
+        if(empty($result) || !isset($result[0])){
+            return null;
+        }
+        return $math?(isset($result[0]['tmp'])?$result[0]['tmp']:0):$result[0];
+    }
+
+    /**
+     * 启动事务,数据rollback 支持
+     * @access public
+     * @param string $strName 事务的名称
+     * @return boolean
+     */
+    public function startTrans($strName = '') {
+        !$this->linkID && $this->initConnect(true);
+        if ($this->transTimes == 0) {
+            if (false == $this->clsDriverInstance->query($this->linkID,'START TRANSACTION')){
+                if ($this->reTest >= 3 || !$this->isReTry()){
+                    $this->error();
+                    return false;
+                }else{
+                    $this->reTest++;
+                    $this->reConnect();
+                    return $this->startTrans($strName);
+                }
+            }
+        }
+        $this->transTimes++;
+        (!$this->transName && $strName) && $this->transName = $strName;
+        $this->arrSql['trans'][] = "startTrans,Master:{$this->transName},Current:{$strName}";
+        return true;
+    }
+
+    /**
+     * 用于非自动提交状态下面的查询提交
+     * @access public
+     * @param string $strName 事务的名称
+     * @return boolean
+     */
+    public function commit($strName = '') {
+        $this->arrSql['trans'][] = "commit,Master:{$this->transName},Current:{$strName}";
+        if (((!$strName && !$this->transName)||($this->transName == $strName)) && $this->transTimes > 0){
+            !$this->linkID && $this->initConnect(true);
+            $result = $this->clsDriverInstance->query($this->linkID,'COMMIT');
+            if(!$result){
+                $this->error();
+                return false;
+            }
+            $this->arrSql['trans'][] = "commit finish on:{$strName}";
+            $this->transTimes = 0;
+            $this->transName = '';
+        }
+        return true;
+    }
+
+    /**
+     * 事务回滚
+     * @access public
+     * @return boolean
+     */
+    public function rollback() {
+        if ($this->transTimes > 0){
+            !$this->linkID && $this->initConnect(true);
+            $result = $this->clsDriverInstance->query($this->linkID,'ROLLBACK');
+            $this->transTimes = 0;
+            if(!$result){
+                $this->error();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 执行一下有结果的SQL
+     * @param $strSql
+     * @return bool|int
+     */
+    public function execute($strSql){
+        !$this->linkID && $this->initConnect(true);
+        $this->queryStr = $strSql;
+        $this->queryID && $this->free();//释放前次的查询结果
+        $result = $this->clsDriverInstance->query($this->linkID,$strSql);
+        if ( false === $result) {
+            if ($this->reTest >= 3 || !$this->isReTry()){
+                $this->error();
+                return false;
+            }else{
+                $this->reTest++;
+                $this->reConnect();
+                return $this->execute($strSql);
+            }
+        } else {
+            $this->numRows = $this->clsDriverInstance->getAffectedRows($this->linkID);
+            $this->lastInsID = $this->clsDriverInstance->getInsertId($this->linkID);
+            return $this->numRows;
+        }
+    }
+
+    /**
+     * 执行一个没有记录集的SQL
+     * @param $strSql
+     * @return array|bool
+     */
+    public function query($strSql){
+        !$this->linkID && $this->initConnect(true);
+        $this->queryStr = $strSql;
+        $this->queryID && $this->free();//释放前次的查询结果
+        $this->queryID = $this->clsDriverInstance->query($this->linkID,$strSql);
+        if ( false === $this->queryID ) {
+            if ($this->reTest >= 3 || !$this->isReTry()){
+                $this->error();
+                return false;
+            }else{
+                $this->reTest++;
+                $this->reConnect();
+                return $this->query($strSql);
+            }
+        } else {
+            $this->numRows = $this->clsDriverInstance->getNumRows($this->queryID);
+            return $this->clsDriverInstance->getAll($this->queryID);
+        }
+    }
+
+    /**
+     * 获取最近一次查询的sql语句
+     * @access public
+     * @return string
+     */
+    public function getLastSql() {
+        return $this->queryStr;
+    }
+
+    /**
+     * 获取最近插入的ID
+     * @return string
+     */
+    public function getLastInsID() {
+        return $this->lastInsID;
+    }
+
+    /**
+     * 获取返回的影响记录数
+     * @return int
+     */
+    public function getNumRows(){
+        return $this->numRows;
+    }
+
+    /**
+     * 获取最近的错误信息
+     * @return string
+     */
+    public function getError() {
+        return $this->strError;
+    }
+
+    /**
+     * 提取所有的SQL语句。
+     * @param string $strType
+     * @return array
+     */
+    public function getAllSql($strType = ''){
+        return isset($this->arrSql[$strType])?$this->arrSql[$strType]:$this->arrSql;
+    }
+
+    /**
+     * 生成SQL的标识，所有的增删修的动作只会生成SQL，而不会运行
+     * @return bool
+     */
+    public function buildSql(){
+        $this->bolBuild = true;
+        $this->arrSql = Array();
+        return true;
+    }
+
+    /**
+     * 取消生成SQL的标识，生成的SQL会运行
+     * @param $type string 取回哪一种SQL的类型
+     * @return array
+     */
+    public function cancelBuildSql($type=null){
+        $this->bolBuild = false;
+        return $this->getAllSql($type);
     }
 
     /**
@@ -496,171 +816,6 @@ class Db{
         return implode(' ',$arrSql);
     }
 
-	/**
-	 * 提取所有的SQL语句。
-	 * @param string $strType
-	 * @return array
-	 */
-    public function getAllSql($strType = ''){
-		return isset($this->arrSql[$strType])?$this->arrSql[$strType]:$this->arrSql;
-	}
-
-   /**
-     * 生成SQL的标识，所有的增删修的动作只会生成SQL，而不会运行
-     * @return bool
-     */
-    public function buildSql(){
-        $this->bolBuild = true;
-        $this->arrSql = Array();
-        return true;
-    }
-
-    /**
-     * 取消生成SQL的标识，生成的SQL会运行
-     * @param $type string 取回哪一种SQL的类型
-     * @return array
-     */
-    public function cancelBuildSql($type=null){
-        $this->bolBuild = false;
-        return $this->getAllSql($type);
-    }
-
-    /**
-     * 插入记录
-     * @history 1、insert 没有锁表操作 by singer
-     * @param string $table 表名
-     * @param mixed $data 数据
-     * @param array $options 参数表达式
-     * @return false | integer
-     */
-    public function insert($table,$data,$options = []) {
-        $values = $fields = [];
-        $options['table'] = $table;
-	    $replace = isset($options['replace'])?$options['replace']:false;//是否replace
-        foreach ($data as $key=>$val){
-            if(is_array($val) && 'exp' == $val[0]){
-                $fields[]   =  $this->parseKey($key);
-                $values[]   =  $val[1];
-            }elseif(is_scalar($val) || is_null($val)) { // 过滤非标量数据
-              $fields[]   =  $this->parseKey($key);
-              $values[]   =  $this->parseValue($val);
-            }
-        }
-        $sql = ($replace?'REPLACE':'INSERT').' INTO '.$this->parseTable($options['table']).
-	        ' ('.implode(',', $fields).') VALUES ('.implode(',', $values).')';
-        $sql .= $this->parseComment(!empty($options['comment'])?$options['comment']:'');
-        if(!in_array($table,['sys_sql_log'])){
-            $this->arrSql['insert'][] = $sql;
-        }
-        if($this->bolBuild){
-            return false;
-        }
-	    $result = $this->execute($sql);
-	    if(false !== $result ){
-		    $result = $this->getLastInsID();
-	    }
-	    return $result;
-    }
-
-    /**
-     * 更新记录,
-     * @history 1、update没有锁表操作 by singer
-     * @param string $table 表名
-     * @param mixed $data 数据
-     * @param array $options 表达式
-     * @return false | integer
-     */
-    public function update($table,$data,$options){
-        if(!isset($options['where'])){//防止误操作，条件不能为空，不使用条件时，where==false
-	        return false;
-        }elseif(isset($options['where']) && $options['where'] == false){
-            $options['where'] = '';
-        }
-        $table = isset($options['alias'])?Array($table,$options['alias']):$table;
-	    $strSql = 'UPDATE '
-            .$this->parseTable($table)
-            .$this->parseSet($data)
-            .$this->parseWhere(!empty($options['where'])?$options['where']:'')
-            .$this->parseLimit(!empty($options['limit'])?$options['limit']:'')
-            .$this->parseComment(!empty($options['comment'])?$options['comment']:'');
-        $this->arrSql['update'][] = $strSql;
-        if($this->bolBuild){
-            return false;
-        }
-        return $this->execute($strSql);
-    }
-
-    /**
-     * 删除记录
-     * @param string $table 表名
-     * @param array $options 表达式
-     * @return false | integer
-     */
-    public function delete($table,$options = []){
-        if(!isset($options['where'])){//防止误操作，条件不能为空，不使用条件时，where==false
-            return false;
-        }elseif(isset($options['where']) && $options['where'] == false){
-            $options['where'] = '';
-        }
-        $this->initConnect(false);
-        $strSql = 'DELETE '.'FROM '
-            .$this->parseTable($table)
-            .$this->parseWhere(!empty($options['where'])?$options['where']:'')
-            .$this->parseComment(!empty($options['comment'])?$options['comment']:'');
-        $this->arrSql['delete'][] = $strSql;
-        if ($this->bolBuild){
-            return false;
-        }
-        return $this->execute($strSql);
-    }
-
-    /**
-	 * 选择查询语句
-	 * @param $table
-	 * @param array $options
-	 * @return mixed
-	 */
-	public function select($table,$options = []){
-		$options['table'] = isset($options['alias'])?Array($table,$options['alias']):$table;
-        $strSql = $this->buildSelectSql($options);
-        $this->arrSql['select'][] = $strSql;
-        return $this->query($strSql);
-    }
-
-	/**
-	 * 选择一条记录的查询语句
-	 * @param $table
-	 * @param array $options
-	 * @param string $math 是否运算
-	 * @return mixed
-	 */
-	public function find($table,$options = [],$math = ''){
-		if ($math){
-            $math = explode('(',$math);//count(id). sum(money). min(id)
-            if (!in_array($math[0],['count','sum','min','max','avg'])){
-                $math = null;
-            }else{
-                $math[1] = (isset($math[1]) && $math[1])?substr($math[1],-1):'*';
-                $options['field'] = "$math[0]($math[1]) as tmp";
-	            unset($options['order']);
-            }
-            unset($options['lock']);
-        }
-		unset($options['page']);
-		$options['limit'] = 1;
-		$options['table'] = isset($options['alias'])?Array($table,$options['alias']):$table;
-		$strSql = $this->buildSelectSql($options);
-        $this->arrSql['select'][] = $strSql;
-        $result = $this->query($strSql);
-		if(false === $result){
-			return false;
-		}
-		if(empty($result) || !isset($result[0])){
-			return null;
-		}
-		return $math?(isset($result[0]['tmp'])?$result[0]['tmp']:0):$result[0];
-	}
-
     /**
      * 生成查询SQL
      * @param array $options 表达式
@@ -686,7 +841,6 @@ class Db{
 
     /**
      * 替换SQL语句中表达式
-     * @param string $sql 原SQL
      * @param array $options 表达式
      * @return string
      */
@@ -719,31 +873,6 @@ class Db{
     }
 
     /**
-     * 获取最近一次查询的sql语句
-     * @access public
-     * @return string
-     */
-    public function getLastSql() {
-        return $this->queryStr;
-    }
-
-    /**
-     * 获取最近插入的ID
-     * @return string
-     */
-    public function getLastInsID() {
-        return $this->lastInsID;
-    }
-
-    /**
-     * 获取最近的错误信息
-     * @return string
-     */
-    public function getError() {
-        return $this->strError;
-    }
-
-    /**
      * 数据库错误信息
      * 并显示当前的SQL语句
      */
@@ -751,60 +880,7 @@ class Db{
         $strError = $this->clsDriverInstance->error($this->linkID);
         $this->strError .= $this->queryStr;
         $this->strError .= "\n [ 错误信息 ] :" . $strError;
-        if (\Spt::$arrConfig['DEBUG'] === true){
-            \Spt::halt(['sql error',$this->strError]);
-        }
-    }
-
-    /**
-     * 执行一下有结果的SQL
-     * @param $strSql
-     * @return bool|int
-     */
-    public function execute($strSql){
-        !$this->linkID && $this->initConnect(true);
-        $this->queryStr = $strSql;
-        $this->queryID && $this->free();//释放前次的查询结果
-        $result = $this->clsDriverInstance->query($this->linkID,$strSql);
-        if ( false === $result) {
-            if ($this->reTest >= 3 || !$this->isReTry()){
-                $this->error();
-                return false;
-            }else{
-                $this->reTest++;
-                $this->reConnect();
-                return $this->execute($strSql);
-            }
-        } else {
-            $this->numRows = $this->clsDriverInstance->getAffectedRows($this->linkID);
-            $this->lastInsID = $this->clsDriverInstance->getInsertId($this->linkID);
-            return $this->numRows;
-        }
-    }
-
-    /**
-     * 执行一个没有记录集的SQL
-     * @param $strSql
-     * @return array|bool
-     */
-    public function query($strSql){
-        !$this->linkID && $this->initConnect(true);
-        $this->queryStr = $strSql;
-        $this->queryID && $this->free();//释放前次的查询结果
-        $this->queryID = $this->clsDriverInstance->query($this->linkID,$strSql);
-        if ( false === $this->queryID ) {
-            if ($this->reTest >= 3 || !$this->isReTry()){
-                $this->error();
-                return false;
-            }else{
-                $this->reTest++;
-                $this->reConnect();
-                return $this->query($strSql);
-            }
-        } else {
-            $this->numRows = $this->clsDriverInstance->getNumRows($this->queryID);
-            return $this->clsDriverInstance->getAll($this->queryID);
-        }
+        \Spt::$arrConfig['DEBUG'] && \Spt::halt(['sql error',$this->strError]);
     }
 
     /**
@@ -824,72 +900,6 @@ class Db{
         $this->clsDriverInstance->close($this->linkID);
         $this->linkID = null;
         $this->reTest = 0;
-    }
-
-    /**
-     * 启动事务,数据rollback 支持
-     * @access public
-     * @param string $strName 事务的名称
-     * @return boolean
-     */
-    public function startTrans($strName = '') {
-        !$this->linkID && $this->initConnect(true);
-        if ($this->transTimes == 0) {
-            if (false == $this->clsDriverInstance->query($this->linkID,'START TRANSACTION')){
-                if ($this->reTest >= 3 || !$this->isReTry()){
-                    $this->error();
-                    return false;
-                }else{
-                    $this->reTest++;
-                    $this->reConnect();
-                    return $this->startTrans($strName);
-                }
-            }
-        }
-        $this->transTimes++;
-        (!$this->transName && $strName) && $this->transName = $strName;
-        $this->arrSql['trans'][] = "startTrans,Master:{$this->transName},Current:{$strName}";
-        return true;
-    }
-
-    /**
-     * 用于非自动提交状态下面的查询提交
-     * @access public
-     * @param string $strName 事务的名称
-     * @return boolean
-     */
-    public function commit($strName = '') {
-        $this->arrSql['trans'][] = "commit,Master:{$this->transName},Current:{$strName}";
-        if (((!$strName && !$this->transName)||($this->transName == $strName)) && $this->transTimes > 0){
-            !$this->linkID && $this->initConnect(true);
-            $result = $this->clsDriverInstance->query($this->linkID,'COMMIT');
-            if(!$result){
-                $this->error();
-                return false;
-            }
-            $this->arrSql['trans'][] = "commit finish on:{$strName}";
-            $this->transTimes = 0;
-            $this->transName = '';
-        }
-        return true;
-    }
-
-    /**
-     * 事务回滚
-     * @access public
-     * @return boolean
-     */
-    public function rollback() {
-        if ($this->transTimes > 0){
-            !$this->linkID && $this->initConnect(true);
-            $result = $this->clsDriverInstance->query($this->linkID,'ROLLBACK');
-            $this->transTimes = 0;
-            if(!$result){
-                $this->error();
-                return false;
-            }
-        }
-        return true;
     }
 
     /**

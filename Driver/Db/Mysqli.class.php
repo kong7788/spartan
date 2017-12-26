@@ -15,6 +15,10 @@ class Mysqli implements Db {
         $this->setConfig($_arrConfig);
     }
 
+    /**
+     * 设置配置文件
+     * @param array $_arrConfig
+     */
     public function setConfig($_arrConfig = []){
         (!isset($_arrConfig['CHARSET']) || !$_arrConfig['CHARSET']) && $_arrConfig['CHARSET'] = 'utf8';
         $this->arrConfig = $_arrConfig;
@@ -66,6 +70,7 @@ class Mysqli implements Db {
         $intErrNo = mysqli_errno($intLinkID);
         return ($intErrNo == 2013 || $intErrNo == 2006)?true:false;
     }
+
     /**
      * 执行查询 返回数据集
      * @access public
@@ -77,10 +82,20 @@ class Mysqli implements Db {
         return mysqli_query($intLinkID,$strSql);
     }
 
+    /**
+     * 获得影响的更新记录数
+     * @param $queryID
+     * @return int
+     */
     public function getNumRows($queryID){
         return mysqli_num_rows($queryID);
     }
 
+    /**
+     * 获取影响的返回记录数
+     * @param $intLinkID
+     * @return int
+     */
     public function getAffectedRows($intLinkID){
         return mysqli_affected_rows($intLinkID);
     }
@@ -150,7 +165,6 @@ class Mysqli implements Db {
 		}
 		return $key;
 	}
-
 
     /**
      * 取得数据表的字段信息
