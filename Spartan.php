@@ -202,6 +202,8 @@ class Spt {
         $dirName = strstr($class,'\\', false);
         if ($appName == 'Spartan'){
             $dirName = FRAME_PATH . $dirName;
+        }elseif ($appName == 'Dal' || $appName == 'Logic'){
+            $dirName = APP_ROOT . $appName . $dirName;
         }else{//如果不是系统
             $dirName = ($appName == APP_ROOT ? APP_PATH : APP_PATH . '../' . $appName) . $dirName;
         }

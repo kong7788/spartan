@@ -16,6 +16,7 @@ abstract class Controller{
     public $sessionExpire = 0;//session的有效期，0为默认
     public $cachePath = 'Runtime/Cache/';//模板缓存位置
     protected $tVar  = Array();// 模板输出变量
+    protected $Logic = null;
 
     /**
      * 构造函数，启动session

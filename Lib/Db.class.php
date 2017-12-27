@@ -569,37 +569,36 @@ class Db{
             $strWhere .= '( ';
             $k = trim($k);
             is_numeric($k) && $k  = '_complex';
-
-                if(0 === strpos($k,'_')){// 解析特殊条件表达式
-                    $strWhere .= $this->parseCustomWhere($k,$v);
-                }else{// 查询字段的安全过滤
-                    if(!preg_match('/^[A-Z_\|\&\-.a-z0-9\(\)\,@]+$/',$k)){
-                        \Spt::halt(['where express error',$k]);
-                    }
-                    $bolMulti = is_array($v) &&  isset($v['_multi']);//多条件支持
-                    if(strpos($k,'|')) {//支持 name|title|nickname 方式定义查询字段
-                        $arrTempKey = explode('|',$k);
-                        $arrTempStr = Array();
-                        foreach ($arrTempKey as $kk=>$vv){//name|title|nickname 每个都是字段key
-                            $strValue =  $bolMulti?$v[$kk]:$v;
-                            $arrTempStr[] = '('.$this->parseWhereItem($this->parseKey($vv),$strValue).')';
-                        }
-                        $strWhere .= implode(' OR ',$arrTempStr);
-                    }elseif(strpos($k,'&')){//支持 name&&title&&nickname 方式定义查询字段
-                        $arrTempKey = explode('&',$k);
-                        $arrTempStr = Array();
-                        foreach ($arrTempKey as $kk=>$vv){//name&title&nickname 每个都是字段key
-                            $strValue =  $bolMulti?$v[$kk]:$v;
-                            $arrTempStr[] = '('.$this->parseWhereItem($this->parseKey($vv),$strValue).')';
-                        }
-                        $strWhere .= implode(' AND ',$arrTempStr);
-                    }else{
-                        $strWhere .= $this->parseWhereItem($this->parseKey($k),$v);
-                    }
+            if(0 === strpos($k,'_')){// 解析特殊条件表达式
+                $strWhere .= $this->parseCustomWhere($k,$v);
+            }else{// 查询字段的安全过滤
+                if(!preg_match('/^[A-Z_\|\&\-.a-z0-9\(\)\,@]+$/',$k)){
+                    \Spt::halt(['where express error',$k]);
                 }
+                $bolMulti = is_array($v) &&  isset($v['_multi']);//多条件支持
+                if(strpos($k,'|')) {//支持 name|title|nickname 方式定义查询字段
+                    $arrTempKey = explode('|',$k);
+                    $arrTempStr = Array();
+                    foreach ($arrTempKey as $kk=>$vv){//name|title|nickname 每个都是字段key
+                        $strValue =  $bolMulti?$v[$kk]:$v;
+                        $arrTempStr[] = '('.$this->parseWhereItem($this->parseKey($vv),$strValue).')';
+                    }
+                    $strWhere .= implode(' OR ',$arrTempStr);
+                }elseif(strpos($k,'&')){//支持 name&&title&&nickname 方式定义查询字段
+                    $arrTempKey = explode('&',$k);
+                    $arrTempStr = Array();
+                    foreach ($arrTempKey as $kk=>$vv){//name&title&nickname 每个都是字段key
+                        $strValue =  $bolMulti?$v[$kk]:$v;
+                        $arrTempStr[] = '('.$this->parseWhereItem($this->parseKey($vv),$strValue).')';
+                    }
+                    $strWhere .= implode(' AND ',$arrTempStr);
+                }else{
+                    $strWhere .= $this->parseWhereItem($this->parseKey($k),$v);
+                }
+            }
             $strWhere .= ' )'. $strOperate;
         }
-        $strWhere = substr($strOperate, 0 , -strlen($strOperate));
+        $strWhere = substr($strWhere, 0 , -strlen($strOperate));
         return empty($strWhere) ? '' : ' WHERE '.$strWhere;
     }
 
