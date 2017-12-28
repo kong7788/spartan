@@ -1,5 +1,6 @@
 <?php
 namespace Spartan\Lib;
+use Spartan\Core\Model;
 
 defined('APP_PATH') OR die('404 Not Found');
 
@@ -8,133 +9,85 @@ defined('APP_PATH') OR die('404 Not Found');
  * Class Dal
  * @package Spartan\Lib
  */
-class Dal{
-    private static $arrRequestData = [];
-
-    /**
-     * 初始化，把get、pos的值都放在一起，同名优先post
-     * Dal constructor.
-     * @param array $_arrRequest
-     */
-    public function __construct($_arrRequest = []){
-        self::$arrRequestData = array_merge($_GET, $_POST);
-        is_array($_arrRequest) && $this->setData($_arrRequest);
-    }
-
-    /**
-     * 设置一个数据组，用于和Control一样的getData
-     * @param array $_arrRequest
-     * @return $this
-     */
-    public function setData($_arrRequest = []){
-        if (self::$arrRequestData){
-            self::$arrRequestData = array_merge(self::$arrRequestData,$_arrRequest);
-        }else{
-            self::$arrRequestData = $_arrRequest;
-        }
-        return $this;
-    }
-
-    /**
-     * 获取调用的指定信息
-     * @param string $key 要获取的$this->request_data[$key]数据
-     * @param string $default 当$key数据为空时，返回$value的内容
-     * @return mixed
-     */
-    public function getData($key = null,$default = null){
-        if (!$key && !$default){
-            return self::$arrRequestData;
-        }elseif (isset(self::$arrRequestData[$key])){
-            if(is_numeric($default)){
-                return intval(self::$arrRequestData[$key]);
-            }elseif (is_string($default)){
-                return trim(self::$arrRequestData[$key]);
-            }else{
-                return self::$arrRequestData[$key];
-            }
-        }else{
-            return $default;
-        }
-    }
+class Dal extends Model {
 
     /**
      * 读取单一记录，返回一个记录的Array();
-     * @param $strTableName
+     *
+     * @param \stdClass|string $tableNameOrTableClass
      * @param array $options
      * @return mixed
      */
-    public function find($strTableName, $options = []){
-        $clsTable = $this->getDalClass($strTableName);
+    public function find($tableNameOrTableClass,$options = []){
+        $clsTable = $this->getDalClass($tableNameOrTableClass);
         $options = $this->parseCondition($clsTable->arrCondition,$options);
         return $this->Db()->find([$clsTable->strTable,$clsTable->strAlias],$options);
     }
 
     /**
      * 读取一个列表记录，返回一个列表的Array();
-     * @param $strTableName
+     * @param \stdClass|string $tableNameOrTableClass
      * @param array $options
      * @param boolean $bolNeedCount 是否需要总记录数
      * @return mixed
      */
-    public function select($strTableName, $options = [],$bolNeedCount = false){
-        $clsTable = $this->getDalClass($strTableName);
+    public function select($tableNameOrTableClass,$options = [],$bolNeedCount = false){
+        $clsTable = $this->getDalClass($tableNameOrTableClass);
         $options = $this->parseCondition($clsTable->arrCondition,$options);
         $options = $this->commonVariable($options);
-
-        return $this->Db()->select([$clsTable->strTable,$clsTable->strAlias],$options);
-    }
-
-    /**
-     * 删除记录。
-     * @param $strTableName
-     * @param array $options
-     */
-    public function delete($strTableName, $options = []){
-
-    }
-
-    /**
-     * @param $strTableName
-     * @param array $options
-     * @param array $arrData
-     */
-    public function update($strTableName, $options = [], $arrData = []){
-
-    }
-
-    /**
-     * 添加和修改，返回的Data中，0-是【更新成功】或【最后插入ID】，1-是所有的SQL语句
-     * @param $strTableName
-     * @param array $options
-     * @param array $arrData
-     */
-    public function updateField($strTableName, $options = [], $arrData = []){
-
-    }
-
-
-    /**
-     * @param $tableName \stdClass|string
-     * @return mixed
-     */
-    private function getDalClass($tableName){
-        if (is_object($tableName)){//是一个类
-            \Spt::setInstance(get_class($tableName),$tableName);
-            return $tableName;
+        $arrResult = Array([],0);
+        $arrResult[0] = $this->Db()->select([$clsTable->strTable,$clsTable->strAlias],$options);
+        if ($bolNeedCount){//如果需要总条数
+            $arrResult[1] = $this->Db()->find(
+                [$clsTable->strTable,$clsTable->strAlias],
+                $options,'count('.($clsTable->strPrimaryKey?$clsTable->strPrimaryKey:'*').')'
+            );
+            return $arrResult;
         }else{
-            $arrTempTable = explode('_',$tableName);
-            array_walk($arrTempTable,function(&$v){$v = ucfirst(strtolower($v));});
-            $strPathName = array_shift($arrTempTable);
-            $strClassName = implode('',$arrTempTable);
-            return \Spt::getInstance('Dal\\'.$strPathName.'\\'.$strClassName);
+            return $arrResult[0];
         }
     }
 
     /**
-     * @return null|\Spartan\Lib\Db;
+     * 删除记录。
+     * @param \stdClass|string $tableNameOrTableClass
+     * @param array $options
+     * @return mixed
      */
-    public function Db(){
-        return \Spt::getInstance('Spartan\\Lib\\Db');
+    public function delete($tableNameOrTableClass,$options = []){
+        $clsTable = $this->getDalClass($tableNameOrTableClass);
+        return $this->Db()->delete($clsTable->strTable,$options);
+    }
+
+    /**
+     * @param \stdClass|string $tableNameOrTableClass
+     * @param array $options
+     * @param array $arrData
+     * @return mixed
+     */
+    public function update($tableNameOrTableClass, $arrData = [], $options = []){
+        $clsTable = $this->getDalClass($tableNameOrTableClass);
+        $strPrimaryKey = $this->getData($clsTable->arrPrimaryKey);
+
+
+        if (!$strPrimaryKey){
+            return $this->Db()->insert($clsTable->strTable,$arrData,$options);
+        }else{
+            $options['where'][$clsTable->arrPrimaryKey[0]] = $strPrimaryKey;
+            return $this->Db()->update($clsTable->strTable,$arrData,$options);
+        }
+    }
+
+    /**
+     * 添加和修改，返回的Data中，0-是【更新成功】或【最后插入ID】，1-是所有的SQL语句
+     * @param \stdClass|string $tableNameOrTableClass
+     * @param array $arrData
+     * @param array $options
+     * @return mixed
+     */
+    public function updateField($tableNameOrTableClass, $arrData = [],$options = []){
+        $clsTable = $this->getDalClass($tableNameOrTableClass);
+        return $this->Db()->update($clsTable->strTable,$arrData,$options);
     }
 
     /**
@@ -156,7 +109,7 @@ class Dal{
      * @param string $strAction
      * @return array
      */
-    private function parseCondition($arrCondition = [],$arrOptions = [],$strAction=''){
+    private function parseCondition($arrCondition = [],$arrOptions = [],$strAction = ''){
         $tempWhere = [];//需要重写的where
         $tempKey = ['int','str'];//目前支持的key类型
         $tempExpKey = ['in','between','exp','gt','egt','lt','elt','neq','eq'];//支付的item对比类型
@@ -378,6 +331,7 @@ class Dal{
     private function elt($data,$value){
         return $data <= $value;
     }
+
     /**
      * $arrCondition = Array(
      *      id'=>Array('int','length',10),

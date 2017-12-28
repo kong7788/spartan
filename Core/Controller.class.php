@@ -293,13 +293,6 @@ abstract class Controller{
     }
 
     /**
-     * @return null|\Spartan\Lib\Db;
-     */
-    public function Db(){
-        return \Spt::getInstance('Spartan\\Lib\\Db');
-    }
-
-    /**
      * @return null|\Spartan\Lib\Dal;
      */
     public function Dal(){
