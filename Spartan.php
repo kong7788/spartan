@@ -135,32 +135,24 @@ class Spt {
     /**
      * 加载某一目录下所有文件，预加载
      * @param $strDir
-     * @param $bolFiles
      * @param $ext
-     * @return array 返回所有已经加载的文件类名
      */
-    public static function loadDirFile($strDir,$bolFiles = false, $ext = CLASS_EXT){
+    public static function loadDirFile($strDir, $ext = CLASS_EXT){
         $arrDir = is_array($strDir)?$strDir:explode(',',$strDir);
         $intExtLen = strlen($ext);
-        $arrFilesName = $arrNextPath = [];
+        $arrNextPath = [];
         foreach($arrDir as $dir){
             $arrCore = new RecursiveDirectoryIterator(rtrim($dir,NS).NS);
             foreach($arrCore as $objFile){
                 $strFile = $objFile->getPathname();
                 if ($objFile->isDir()){
-                    if (!in_array($objFile->getFilename(),['.','..'])){
-                        $arrNextPath[] = $strFile;
-                    };
+                    !in_array($objFile->getFilename(),['.','..']) && $arrNextPath[] = $strFile;
                 }else{
-                    if (substr($strFile,0 - $intExtLen) == $ext){
-                        include_once($strFile);
-                        $bolFiles && $arrFilesName[] = str_ireplace($ext,'',str_ireplace(APP_ROOT,'',$strFile));
-                    }
+                    substr($strFile,0 - $intExtLen) == $ext && include_once($strFile);
                 }
             }
         }
-        $arrNextPath && $arrFilesName = array_merge($arrFilesName,self::loadDirFile($arrNextPath,$bolFiles,$ext));
-        return $arrFilesName;
+        $arrNextPath && self::loadDirFile($arrNextPath,$ext);
     }
 
     /**
