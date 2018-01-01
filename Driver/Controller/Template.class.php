@@ -619,8 +619,8 @@ class Template{
     public function parseXmlAttr($attr,$tag) {
         //XML解析安全过滤
         $attr   =   str_replace('&','___', $attr);
-        $xml    =   '<tpl><tag '.$attr.' /></tpl>';
         if (is_array($attr))return($attr);
+        $xml    =   '<tpl><tag '.$attr.' /></tpl>';
         $xml    =   simplexml_load_string($xml);
         if(!$xml) {
             \Spt::halt('_XML_TAG_ERROR_: '.$attr);
@@ -772,7 +772,7 @@ class Template{
         }else{
             $name   = $this->autoBuildVar($name);
         }
-        $parseStr  .=  'if(is_array('.$name.')): $'.$key.' = 0;';
+        $parseStr  .=  'if(isset('.$name.') && is_array('.$name.')): $'.$key.' = 0;';
         if(isset($tag['length']) && '' !=$tag['length'] ) {
             $parseStr  .= ' $__LIST__ = array_slice('.$name.','.$tag['offset'].','.$tag['length'].',true);';
         }elseif(isset($tag['offset'])  && '' !=$tag['offset']){
@@ -813,7 +813,7 @@ class Template{
         $item       =   $tag['item'];
         $key        =   !empty($tag['key'])?$tag['key']:$item.'_key';
         $name       =   $this->autoBuildVar($name);
-        $parseStr   =   '<?php if(is_array('.$name.')): foreach('.$name.' as $'.$key.'=>$'.$item.'): ?>';
+        $parseStr   =   '<?php if(isset('.$name.') && is_array('.$name.')): foreach('.$name.' as $'.$key.'=>$'.$item.'): ?>';
         $parseStr  .=   $this->parse($content);
         $parseStr  .=   '<?php endforeach; endif; ?>';
         $_iterateParseCache[$cacheIterateId] = $parseStr;

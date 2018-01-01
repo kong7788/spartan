@@ -50,13 +50,14 @@ class Document {
                 $arrMethodInfo['name'] = $v;
                 $arrMethods[$k] = $arrMethodInfo;
             }
-            $data['title'] = $this->Ctitle($val);
-            $data['class'] = $val;
-            $data['method'] = $arrMethods;
-            $arrResult[] = $data;
+            $arrData['title'] = $this->Ctitle($val);
+            $arrData['class'] = $val;
+            $arrData['method'] = $arrMethods;
+            $arrResult[] = $arrData;
         }
-        print_r($arrResult);
+        return $arrResult;
     }
+
     /**
      * 加载某一目录下所有文件，预加载
      * @param $strDir
@@ -111,17 +112,6 @@ class Document {
 
     /**
      * 获取类中非继承方法和重写方法
-     * 只获取在本类中声明的方法，包含重写的父类方法，其他继承自父类但未重写的，不获取
-     * 例
-     * class A{
-     *      public function a1(){}
-     *      public function a2(){}
-     * }
-     * class B extends A{
-     *      public function b1(){}
-     *      public function a1(){}
-     * }
-     * getMethods('B')返回方法名b1和a1，a2虽然被B继承了，但未重写，故不返回
      * @param string $strClassName 类名
      * @param string $strAccess public or protected  or private or final 方法的访问权限
      * @return array(access)  or array($strAccess) 返回数组，如果第二个参数有效，
