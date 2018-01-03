@@ -9,7 +9,136 @@ defined('APP_PATH') OR die('404 Not Found');
  * @package Spartan\Lib
  */
 class Validation {
+    private $arrConfig = [];
+    private $arrRequest = [];//客户端请求的值
+    private $arrRules = [];//验证规则
+    private $arrError = [];//错误信息
 
+    /**
+     * @param array $arrConfig
+     * @return Validation
+     */
+    public static function instance($arrConfig = []) {
+        return \Spt::getInstance(__CLASS__,$arrConfig);
+    }
+
+    /**
+     * Validation constructor.
+     * @param array $_arrConfig
+     */
+    public function __construct($_arrConfig = []){
+        isset($_arrConfig['reset']) && $_arrConfig['reset'] && $this->reset();
+        unset($_arrConfig['reset']);
+        $this->arrConfig = $_arrConfig;
+        $this->arrRules = Array(
+            'email'=>$this->isEmail(),
+        );
+    }
+
+    /**
+     * 重新初始化类
+     */
+    public function reset(){
+        unset($this->arrConfig,$this->arrServer,$this->arrPost,$this->arrGet);
+    }
+
+    /**
+     * 设置一个变量值
+     * @param $name
+     * @param string $value
+     * @return $this
+     */
+    public function setValue($name,$value=''){
+        if (is_array($name)){
+            $this->arrRequest = array_merge($this->arrRequest,$name);
+        }else{
+            $this->arrRequest[$name] = $value;
+        }
+        return $this;
+    }
+
+    /**
+     * 添加自定义规则
+     * @param string $name //规则名称
+     * @param Function|null //处理函数
+     * @return $this
+     */
+    public function setRules($name,$function=null){
+        if (is_array($name)){
+            $this->arrRequest = array_merge($this->arrRequest,$name);
+        }else{
+            $this->arrRequest[$name] = $function;
+        }
+        return $this;
+    }
+
+    /**
+     * 开始验证
+     * @param $_arrRule array
+     * @return array
+     */
+    public function authorize($_arrRule){
+        foreach($_arrRule as $k => $v) {
+            if (isset($v[1]) && method_exists($this,$v[1])) {
+                $action = $v[1];
+                $info = $v[2];
+                array_splice($v,1,2);
+                if ($this->{$action}($v,$k) === false){
+                    //$data = Array($info,0,$k);
+                    $data = Array('info'=>$info,'status'=>0,'tip'=>$k);
+                    return false;
+                }
+            }
+            is_array($v) && $v = $v[0];
+        }
+        return $this->arrError;
+    }
+
+
+
+    //验证的字段必须为 yes、 on、 1、或 true
+    private function accepted(){
+
+    }
+
+    //验证的字段必须完全是字母的字符。
+    private function alpha(){
+
+    }
+
+    //验证的字段可能具有字母、数字、破折号（ - ）以及下划线（ _ ）。
+    private function alpha_dash(){
+
+    }
+
+    //验证的字段必须完全是字母、数字。
+    private function alpha_num(){
+
+    }
+
+    private function date(){
+
+    }
+
+    //验证的字段的大小必须在给定的 min 和 max 之间。字符串、数字、数组或是文件大小的计算方式都用 size 方法进行评估。
+    private function between(){
+
+    }
+    //验证的字段必须能够被转换为布尔值。可接受的参数为 true、false、1、0、"1" 以及 "0"。
+    private function boolean(){
+
+    }
+    private function required($data,$value){
+
+    }
+
+    private function required_without(){
+
+    }
+
+    private function nullable($data,$value){
+
+    }
 
     //***************************************************以下是$arrOptions['where']中直接使用组数的函数
     /**
