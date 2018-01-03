@@ -10,8 +10,9 @@ defined('APP_PATH') OR die('404 Not Found');
  */
 class Validation {
     private $arrConfig = [];
-    private $arrRequest = [];//客户端请求的值
-    private $arrRules = [];//验证规则
+    /** @var null|Request  */
+    private $clsRequest = null;//
+    private $arrFun = [];//验证规则
     private $arrError = [];//错误信息
 
     /**
@@ -27,11 +28,12 @@ class Validation {
      * @param array $_arrConfig
      */
     public function __construct($_arrConfig = []){
+        $this->clsRequest = Request::instance($_arrConfig);
         isset($_arrConfig['reset']) && $_arrConfig['reset'] && $this->reset();
         unset($_arrConfig['reset']);
         $this->arrConfig = $_arrConfig;
-        $this->arrRules = Array(
-            'email'=>$this->isEmail(),
+        $this->arrFun = Array(
+            //'email'=>$this->isEmail(),
         );
     }
 
@@ -50,9 +52,9 @@ class Validation {
      */
     public function setValue($name,$value=''){
         if (is_array($name)){
-            $this->arrRequest = array_merge($this->arrRequest,$name);
+            //$this->arrRequest = array_merge($this->arrRequest,$name);
         }else{
-            $this->arrRequest[$name] = $value;
+            //$this->arrRequest[$name] = $value;
         }
         return $this;
     }
@@ -65,9 +67,9 @@ class Validation {
      */
     public function setRules($name,$function=null){
         if (is_array($name)){
-            $this->arrRequest = array_merge($this->arrRequest,$name);
+            $this->arrFun = array_merge($this->arrFun,$name);
         }else{
-            $this->arrRequest[$name] = $function;
+            $this->arrFun[$name] = $function;
         }
         return $this;
     }
@@ -75,23 +77,56 @@ class Validation {
     /**
      * 开始验证
      * @param $_arrRule array
-     * @return array
+     * @return boolean
+     * 'name'=>Array('required','length',Array(2,10),'请输入名称'),
      */
     public function authorize($_arrRule){
         foreach($_arrRule as $k => $v) {
-            if (isset($v[1]) && method_exists($this,$v[1])) {
-                $action = $v[1];
-                $info = $v[2];
-                array_splice($v,1,2);
-                if ($this->{$action}($v,$k) === false){
-                    //$data = Array($info,0,$k);
-                    $data = Array('info'=>$info,'status'=>0,'tip'=>$k);
-                    return false;
+            $strValue = $this->clsRequest->get($k);
+            list($strCondition,$strFun,$arrValue,$strMsg) = $v;
+            $arrMsg = Array(call_user_func('sprintf',$strMsg,$arrValue),$k,$strValue);
+            //如果为必填写，退出
+            if (!$strValue && in_array($strCondition,['required'])){
+                $this->arrError[] = $arrMsg;
+                return false;
+            }
+            $arrFun = explode('|',$strFun);
+            $bolResult = false;
+            foreach ($arrFun as $item) {//Or操作
+                $bolOrResult = false;
+                $arrItem = explode('&',$item);//And操作
+                foreach ($arrItem as $fun){
+                    $strLeft = substr($fun,0,1);
+                    if ($strLeft === '!'){
+                        $fun = substr($fun,1);
+                    }else{
+                        $strLeft = '';
+                    }
+                    $bolAndResult = false;
+                    //检查该函数的值
+                    if (method_exists($this,$fun)){
+                        $bolAndResult = $this->$fun($arrValue);
+                    }elseif (isset($this->arrFun[$fun]) && $this->arrFun[$fun]){
+                        $bolAndResult = $this->arrFun[$fun]($arrValue);
+                    }
+                    $strLeft && $bolAndResult = !$bolAndResult;
+                    //对结果算进行判断
+                    if (!$bolAndResult){
+                        $bolOrResult = false;
+                        break;//这里是and判断，如果有一个为false，就整个都为false
+                    }
+                }
+                if ($bolOrResult){
+                    $bolResult = true;
+                    break;//最后的是Or操作，只要有一个true，整个都是true
                 }
             }
-            is_array($v) && $v = $v[0];
+            if (!$bolResult){//验证没有通过
+                $this->arrError[] = $arrMsg;
+                return false;
+            }
         }
-        return $this->arrError;
+        return true;
     }
 
 
