@@ -14,6 +14,7 @@ class Validation {
     private $clsRequest = null;//
     private $arrFun = [];//验证规则
     private $arrError = [];//错误信息
+    private $arrResult = [];//函数比较的结果值
 
     /**
      * @param array $arrConfig
@@ -78,20 +79,38 @@ class Validation {
      * 开始验证
      * @param $_arrRule array
      * @return boolean
-     * 'name'=>Array('required','length',Array(2,10),'请输入名称'),
+     * 'name'=>Array('required','length',[2,10],'请输入登录'),
+     * 'email'=>Array('without','email',['$phone'],'请输入邮箱'),
+     * 'phone'=>Array('without','phone',['$email'],'请输入手机'),
+     * 'real_name'=>Array('null','length',[2,10],'请输入真实姓名'),
+     * 'password'=>Array('null','length',[2,10],'请输入密码'),
+     * 're_password'=>Array('null','same',['$password'],'请输入名称'),
      */
     public function authorize($_arrRule){
         foreach($_arrRule as $k => $v) {
             $strValue = $this->clsRequest->get($k);
             list($strCondition,$strFun,$arrValue,$strMsg) = $v;
+            $arrValue = $this->parseValue($arrValue);//解析变量
             $arrMsg = Array(call_user_func('sprintf',$strMsg,$arrValue),$k,$strValue);
-            //如果为必填写，退出
-            if (!$strValue && in_array($strCondition,['required'])){
-                $this->arrError[] = $arrMsg;
+            !$strCondition && $strCondition = 'null';
+            if (!in_array($strCondition,['required','without','null'])){
+                $this->arrError[] = Array("变量{$k}中规则{$strCondition}未支持。",$k,$strValue);
                 return false;
             }
+            //如果为必填写即跳过
+            if (!$strValue){
+                if ($strCondition == 'required'){
+                    $this->arrError[] = $arrMsg;
+                }elseif ($strCondition == 'null') {//可以为空的，就跳过
+
+                }elseif ($strCondition == 'without'){//或的判断
+
+                }
+                continue;
+            }
+            //下面解析所有的函数，得到一个boolean值，判断是否通过
             $arrFun = explode('|',$strFun);
-            $bolResult = false;
+            $bolResult = false;//默认不通过
             foreach ($arrFun as $item) {//Or操作
                 $bolOrResult = false;
                 $arrItem = explode('&',$item);//And操作
@@ -105,9 +124,9 @@ class Validation {
                     $bolAndResult = false;
                     //检查该函数的值
                     if (method_exists($this,$fun)){
-                        $bolAndResult = $this->$fun($arrValue);
+                        $bolAndResult = $this->$fun($strValue,$arrValue);
                     }elseif (isset($this->arrFun[$fun]) && $this->arrFun[$fun]){
-                        $bolAndResult = $this->arrFun[$fun]($arrValue);
+                        $bolAndResult = $this->arrFun[$fun]($strValue,$arrValue);
                     }
                     $strLeft && $bolAndResult = !$bolAndResult;
                     //对结果算进行判断
@@ -129,6 +148,20 @@ class Validation {
         return true;
     }
 
+    /**
+     * rule的第2个参数，如果有变量，就解释
+     * @param $arrValue array
+     * @return array
+     */
+    public function parseValue($arrValue = []){
+        !is_array($arrValue) && $arrValue = [$arrValue];
+        foreach ($arrValue as &$value){
+            if (substr($value,0,1) === '$'){
+                $value = $this->clsRequest->input(substr($value,1));
+            }
+        }
+        return $arrValue;
+    }
 
 
     //验证的字段必须为 yes、 on、 1、或 true
