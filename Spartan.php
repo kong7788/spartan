@@ -25,6 +25,7 @@ class Spt {
         (!isset($_arrConfig['APP_ROOT']) || !$_arrConfig['APP_ROOT']) && die('You need to configure site\'s variable "APP_ROOT".');
         substr($_arrConfig['APP_ROOT'],-1) != NS && $_arrConfig['APP_ROOT'] .= NS;
         (!isset($_arrConfig['APP_NAME']) || !$_arrConfig['APP_NAME']) && die('You need to configure site\'s variable "APP_NAME".');
+        (!isset($_arrConfig['SERVER']) || !$_arrConfig['SERVER']) && $_arrConfig['SERVER'] = false;
         (!isset($_arrConfig['LANG']) || !$_arrConfig['LANG']) && $_arrConfig['LANG'] = 'zh-cn';
         (!isset($_arrConfig['TIME_ZONE']) || !$_arrConfig['TIME_ZONE']) && $_arrConfig['TIME_ZONE'] = 'PRC';
         define('APP_NAME',ucfirst(strtolower($_arrConfig['APP_NAME'])));//项目名称
@@ -94,11 +95,15 @@ class Spt {
         $strFile = APP_PATH.'Common'.NS.'Config.php';
         !is_file($strFile) && file_put_contents($strFile,trim($strAppConfig,PHP_EOL));
         //初始化Dal/Logic目录
-        list($strDal,$strLogic) = explode('{README}',file_get_contents(FRAME_PATH.'Tpl'.NS.'default_readme.tpl'));
+        list($strDal,$strLogic,$strCache,$strLog) = explode('{README}',file_get_contents(FRAME_PATH.'Tpl'.NS.'default_readme.tpl'));
         $strFile = APP_ROOT.'Dal'.NS.'README.md';
         !is_file($strFile) && file_put_contents($strFile,trim($strDal,PHP_EOL));
         $strFile = APP_ROOT.'Logic'.NS.'README.md';
         !is_file($strFile) && file_put_contents($strFile,trim($strLogic,PHP_EOL));
+        $strFile = APP_PATH.'Runtime'.NS.'Cache'.NS.'README.md';//当前项目
+        !is_file($strFile) && file_put_contents($strFile,trim($strCache,PHP_EOL));
+        $strFile = APP_PATH.'Runtime'.NS.'Log'.NS.'README.md';//当前项目
+        !is_file($strFile) && file_put_contents($strFile,trim($strLog,PHP_EOL));
     }
 
     /**

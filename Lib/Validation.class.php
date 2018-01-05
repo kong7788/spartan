@@ -32,6 +32,7 @@ class Validation {
         $this->clsRequest = Request::instance($_arrConfig);
         isset($_arrConfig['reset']) && $_arrConfig['reset'] && $this->reset();
         unset($_arrConfig['reset']);
+        !isset($_arrConfig['bail']) && $_arrConfig['bail'] = true;
         $this->arrConfig = $_arrConfig;
     }
 
@@ -43,16 +44,31 @@ class Validation {
     }
 
     /**
+     * @param $name
+     * @param $value
+     */
+    public function setConfig($name,$value){
+        $this->arrConfig[$name] = $value;
+    }
+    /**
      * 返回所有的已验证结果
      * @param $name string
      * @return array
      */
-    public function all($name){
+    public function allResult($name){
         return isset($this->arrResult[$name])?$this->arrResult[$name]:$this->arrResult;
     }
 
     /**
      * 返回所有错误
+     * @return array
+     */
+    public function allError(){
+        return $this->arrError;
+    }
+
+    /**
+     * 最后的错误
      * @return array
      */
     public function error(){
@@ -160,6 +176,9 @@ class Validation {
                         $this->arrError[] = $arrMsg;
                         return false;
                     }
+                }
+                if (isset($this->arrConfig['bail']) && $this->arrConfig['bail'] == true && $this->arrError){
+                    return false;
                 }
             }
         }
