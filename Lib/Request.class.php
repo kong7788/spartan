@@ -9,6 +9,7 @@ defined('APP_PATH') OR die('404 Not Found');
  * @package Spartan\Lib
  */
 class Request {
+    private $arrRequest = [];//
     /**
      * @param array $arrConfig
      * @return Validation
@@ -23,6 +24,14 @@ class Request {
      */
     public function __construct($_arrConfig = []){
 
+    }
+
+    public function setValue($name,$value){
+        if (is_array($name)){
+            $this->arrRequest = array_merge($this->arrRequest,$name);
+        }else{
+            $this->arrRequest[$name] = $value;
+        }
     }
 
     public function all(){

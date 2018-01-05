@@ -33,16 +33,30 @@ class Validation {
         isset($_arrConfig['reset']) && $_arrConfig['reset'] && $this->reset();
         unset($_arrConfig['reset']);
         $this->arrConfig = $_arrConfig;
-        $this->arrFun = Array(
-            //'email'=>$this->isEmail(),
-        );
     }
 
     /**
      * 重新初始化类
      */
     public function reset(){
-        unset($this->arrConfig,$this->arrServer,$this->arrPost,$this->arrGet);
+        unset($this->arrConfig,$this->arrFun,$this->arrError,$this->arrResult);
+    }
+
+    /**
+     * 返回所有的已验证结果
+     * @param $name string
+     * @return array
+     */
+    public function all($name){
+        return isset($this->arrResult[$name])?$this->arrResult[$name]:$this->arrResult;
+    }
+
+    /**
+     * 返回所有错误
+     * @return array
+     */
+    public function error(){
+        return $this->arrError[0];
     }
 
     /**
@@ -52,11 +66,7 @@ class Validation {
      * @return $this
      */
     public function setValue($name,$value=''){
-        if (is_array($name)){
-            //$this->arrRequest = array_merge($this->arrRequest,$name);
-        }else{
-            //$this->arrRequest[$name] = $value;
-        }
+        $this->clsRequest->setValue($name,$value);
         return $this;
     }
 
@@ -80,15 +90,15 @@ class Validation {
      * @param $_arrRule array
      * @return boolean
      * 'name'=>Array('required','length',[2,10],'请输入登录'),
-     * 'email'=>Array('without','email',['$phone'],'请输入邮箱'),
-     * 'phone'=>Array('without','phone',['$email'],'请输入手机'),
+     * 'email'=>Array('without','email',['phone'],'请输入邮箱'),
+     * 'phone'=>Array('without','phone',['email'],'请输入手机'),
      * 'real_name'=>Array('null','length',[2,10],'请输入真实姓名'),
      * 'password'=>Array('null','length',[2,10],'请输入密码'),
      * 're_password'=>Array('null','same',['$password'],'请输入名称'),
      */
     public function authorize($_arrRule){
         foreach($_arrRule as $k => $v) {
-            $strValue = $this->clsRequest->get($k);
+            $strValue = $this->clsRequest->input($k);
             list($strCondition,$strFun,$arrValue,$strMsg) = $v;
             $arrValue = $this->parseValue($arrValue);//解析变量
             $arrMsg = Array(call_user_func('sprintf',$strMsg,$arrValue),$k,$strValue);
@@ -98,51 +108,59 @@ class Validation {
                 return false;
             }
             //如果为必填写即跳过
-            if (!$strValue){
+            if (is_null($strValue) || $strValue == ''){
                 if ($strCondition == 'required'){
                     $this->arrError[] = $arrMsg;
-                }elseif ($strCondition == 'null') {//可以为空的，就跳过
-
-                }elseif ($strCondition == 'without'){//或的判断
-
+                    $this->arrResult[$k] = false;
+                }elseif ($strCondition == 'null') {//可以为空的
+                    $this->arrResult[$k] = true;
                 }
-                continue;
-            }
-            //下面解析所有的函数，得到一个boolean值，判断是否通过
-            $arrFun = explode('|',$strFun);
-            $bolResult = false;//默认不通过
-            foreach ($arrFun as $item) {//Or操作
-                $bolOrResult = false;
-                $arrItem = explode('&',$item);//And操作
-                foreach ($arrItem as $fun){
-                    $strLeft = substr($fun,0,1);
-                    if ($strLeft === '!'){
-                        $fun = substr($fun,1);
-                    }else{
-                        $strLeft = '';
+            }else{
+                //下面解析所有的函数，得到一个boolean值，判断是否通过
+                //$strFun = length&num|length&word
+                $arrFun = explode('|',$strFun);
+                $this->arrResult[$k] = false;//默认不通过
+                foreach ($arrFun as $item) {//Or操作
+                    $bolOrResult = false;
+                    $arrItem = explode('&',$item);//And操作
+                    foreach ($arrItem as $fun){
+                        $strLeft = substr($fun,0,1);
+                        if ($strLeft === '!'){
+                            $fun = substr($fun,1);
+                        }else{
+                            $strLeft = '';
+                        }
+                        $bolAndResult = false;
+                        //检查该函数的值
+                        if (method_exists($this,$fun)){
+                            $bolAndResult = $this->$fun($strValue,isset($arrValue[$fun])?$arrValue[$fun]:$arrValue);
+                        }elseif (isset($this->arrFun[$fun]) && $this->arrFun[$fun]){
+                            $bolAndResult = $this->arrFun[$fun]($strValue,isset($arrValue[$fun])?$arrValue[$fun]:$arrValue);
+                        }
+                        $strLeft && $bolAndResult = !$bolAndResult;
+                        //对结果算进行判断
+                        if (!$bolAndResult){
+                            $bolOrResult = false;
+                            break;//这里是and判断，如果有一个为false，就整个都为false
+                        }
                     }
-                    $bolAndResult = false;
-                    //检查该函数的值
-                    if (method_exists($this,$fun)){
-                        $bolAndResult = $this->$fun($strValue,$arrValue);
-                    }elseif (isset($this->arrFun[$fun]) && $this->arrFun[$fun]){
-                        $bolAndResult = $this->arrFun[$fun]($strValue,$arrValue);
-                    }
-                    $strLeft && $bolAndResult = !$bolAndResult;
-                    //对结果算进行判断
-                    if (!$bolAndResult){
-                        $bolOrResult = false;
-                        break;//这里是and判断，如果有一个为false，就整个都为false
+                    if ($bolOrResult){
+                        $this->arrResult[$k] = true;
+                        break;//最后的是Or操作，只要有一个true，整个都是true
                     }
                 }
-                if ($bolOrResult){
-                    $bolResult = true;
-                    break;//最后的是Or操作，只要有一个true，整个都是true
+                //得到结果后，做最后的判断
+                if ($strCondition == 'without'){
+                    if (!$this->arrResult[$k] && isset($this->arrResult[$arrValue[0]]) && !$this->arrResult[$arrValue[0]]){
+                        $this->arrError[] = $arrMsg;
+                        return false;
+                    }
+                }else{
+                    if (!$this->arrResult[$k]){//验证没有通过
+                        $this->arrError[] = $arrMsg;
+                        return false;
+                    }
                 }
-            }
-            if (!$bolResult){//验证没有通过
-                $this->arrError[] = $arrMsg;
-                return false;
             }
         }
         return true;
@@ -156,247 +174,367 @@ class Validation {
     public function parseValue($arrValue = []){
         !is_array($arrValue) && $arrValue = [$arrValue];
         foreach ($arrValue as &$value){
-            if (substr($value,0,1) === '$'){
-                $value = $this->clsRequest->input(substr($value,1));
+            if (is_array($value)){
+                foreach ($value as &$item){
+                    if (substr($item,0,1) === '$'){
+                        $item = $this->clsRequest->input(substr($item,1));
+                    }
+                }
+                unset($item);
+            }else{
+                if (substr($value,0,1) === '$'){
+                    $value = $this->clsRequest->input(substr($value,1));
+                }
             }
         }
+        unset($value);
         return $arrValue;
     }
 
-
-    //验证的字段必须为 yes、 on、 1、或 true
-    private function accepted(){
-
-    }
-
-    //验证的字段必须完全是字母的字符。
-    private function alpha(){
-
-    }
-
-    //验证的字段可能具有字母、数字、破折号（ - ）以及下划线（ _ ）。
-    private function alpha_dash(){
-
-    }
-
-    //验证的字段必须完全是字母、数字。
-    private function alpha_num(){
-
-    }
-
-    private function date(){
-
-    }
-
-    //验证的字段的大小必须在给定的 min 和 max 之间。字符串、数字、数组或是文件大小的计算方式都用 size 方法进行评估。
-    private function between(){
-
-    }
-    //验证的字段必须能够被转换为布尔值。可接受的参数为 true、false、1、0、"1" 以及 "0"。
-    private function boolean(){
-
-    }
-    private function required($data,$value){
-
-    }
-
-    private function required_without(){
-
-    }
-
-    private function nullable($data,$value){
-
-    }
-
-    //***************************************************以下是$arrOptions['where']中直接使用组数的函数
     /**
-     * $options['where'] = Array(
-     *      'id'=>Array('in',xxxxx)
-     * );
-     * 使用了in，把第1个位置的数组转字段串
-     * @param $arrValue
-     * @return bool
+     * 长度在某一范围内
+     * @param $value
+     * @param $arrValue array
+     * @return bool,是否符合，false为不符合
      */
-    private function inAction(&$arrValue){
-        !is_string($arrValue[1]) && $arrValue[1] = strval($arrValue[1]);
-        return true;
-    }
-
-    /**
-     * $options['where'] = Array(
-     *      'id'=>Array('between',2,5)
-     * );
-     * 使用了between，判断第1和第2个元素转为数字
-     * @param $arrValue
-     * @return bool
-     */
-    private function betweenAction(&$arrValue){
-        if (!is_array($arrValue[1]) || count($arrValue[1]) != 2){
+    private function length($value,$arrValue){
+        $intLength = mb_strlen($value,'utf-8');
+        if ($intLength < $arrValue[0]){
             return false;
         }
-        $arrValue[1][0] = intval($arrValue[1][0]);
-        $arrValue[1][1] = intval($arrValue[1][1]);
-        return is_numeric($arrValue[1][0]) && is_numeric($arrValue[1][1])?true:false;
-    }
-
-    /**
-     * $options['where'] = Array(
-     *      'id'=>Array('exp','id+1')
-     * );
-     * 使用了exp，第二个元素转为字段串原样输出
-     * @param $arrValue
-     * @return bool
-     */
-    private function expAction(&$arrValue){
-        $arrValue[1] = strval($arrValue[1]);
+        if (isset($arrValue[1]) && $arrValue[1] && $intLength > $arrValue[1]){
+            return false;
+        }
         return true;
     }
 
     /**
-     * $options['where'] = Array(
-     *      'id'=>Array('gt',1)
-     * );
-     * 使用了gt，第二个元素转为数字
-     * @param $arrValue
-     * @return bool
-     */
-    private function gtAction(&$arrValue){
-        $arrValue[1] = intval($arrValue[1]);
-        return true;
-    }
-
-    /**
-     * $options['where'] = Array(
-     *      'id'=>Array('gt',1)
-     * );
-     * 使用了egt，第二个元素转为数字，因为如果是需要 等于 的话，可以直接 'id'=>1,而不需要数组
-     * @param $arrValue
-     * @return bool
-     */
-    private function egtAction(&$arrValue){
-        $arrValue[1] = intval($arrValue[1]);
-        return true;
-    }
-
-    /**
-     * $options['where'] = Array(
-     *      'id'=>Array('lt',1)
-     * );
-     * 使用了lt，第二个元素转为数字
-     * @param $arrValue
-     * @return bool
-     */
-    private function ltAction(&$arrValue){
-        $arrValue[1] = intval($arrValue[1]);
-        return true;
-    }
-
-    /**
-     * $options['where'] = Array(
-     *      'id'=>Array('elt',1)
-     * );
-     * 使用了elt，第二个元素转为数字，因为如果是需要 等于 的话，可以直接 'id'=>1,而不需要数组
-     * @param $arrValue
-     * @return bool
-     */
-    private function eltAction(&$arrValue){
-        $arrValue[1] = intval($arrValue[1]);
-        return true;
-    }
-
-    /**
-     * $options['where'] = Array(
-     *      'id'=>Array('neq',1)
-     * );
-     * 使用了neq，第二个元素可为数字也可以为字段串
-     * @param $arrValue
-     * @return bool
-     */
-    private function neqAction(&$arrValue){
-        return true;
-    }
-
-    //************************************************以下是arrCondition要求的变量，符合要求的才加入where
-    /**
-     * $arrCondition = Array(
-     *      id'=>Array('int','notNull'),
-     * 不为空即可，默认
-     * @param $data
-     * @return bool
-     */
-    private function notNull($data){
-        return !!$data;
-    }
-
-    /**
-     * $arrCondition = Array(
-     *      id'=>Array('int','gt',10),
-     * 大于10
-     * @param $data
+     * 判断是否为邮箱
      * @param $value
      * @return bool
      */
-    private function gt($data,$value){
-        return $data > $value;
+    private function email($value){
+        return filter_var($value, FILTER_VALIDATE_EMAIL)?true:false;
     }
 
     /**
-     * $arrCondition = Array(
-     *      id'=>Array('int','egt',10),
-     * 大于等于10
-     * @param $data
+     * 判断是否为手机号码
      * @param $value
      * @return bool
      */
-    private function egt($data,$value){
-        return $data >= $value;
+    private function phone($value){
+        $strPreg = "/^13[0-9]{1}[0-9]{8}$|15[0-9]{1}[0-9]{8}$|18[0-9]{1}[0-9]{8}$/";
+        return preg_match($strPreg, $value)?true:false;
     }
 
     /**
-     * $arrCondition = Array(
-     *      id'=>Array('int','eq',10),
-     * 等于10
-     * @param $data
+     * 判断和某个变量是否相等
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function same($value,$arrValue){
+        return $value == $arrValue[0];
+    }
+
+    /**
+     * 验证的字段必须为 yes、 on、 1、或 true
      * @param $value
      * @return bool
      */
-    private function eqAction($data,$value){
+    private function accepted($value){
+        $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+        return $value == null?false:$value;
+    }
+
+    /**
+     * 验证的字段必须是指定长度的数字
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function num($value,$arrValue){
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
+        $strPreg = "/^[0-9]{{$arrValue[0]},{$arrValue[1]}}$/";
+        return preg_match($strPreg, $value)?true:false;
+    }
+
+    /**
+     * 验证的字段必须是指定长度的字母
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function alpha($value,$arrValue){
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
+        $strPreg = "/^[A-Za-z]{{$arrValue[0]},{$arrValue[1]}}$/";
+        return preg_match($strPreg, $value)?true:false;
+    }
+
+    /**
+     * 验证的字段可能具有字母、数字、破折号（ - ）以及下划线（ _ ）。
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function alpha_dash($value,$arrValue){
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
+        $strPreg = "/^[A-Za-z-_]{{$arrValue[0]},{$arrValue[1]}}$/";
+        return preg_match($strPreg, $value)?true:false;
+    }
+
+    /**
+     * 验证的字段必须完全是字母、数字。
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function alpha_num($value,$arrValue){
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
+        $strPreg = "/^[A-Za-z0-9]{{$arrValue[0]},{$arrValue[1]}}$/";
+        return preg_match($strPreg, $value)?true:false;
+    }
+
+    /**
+     * 验证的字段必须完全是字母、数字、下划线。
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function alpha_num_dash($value,$arrValue){
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
+        $strPreg = "/^[A-Za-z0-9-_]{{$arrValue[0]},{$arrValue[1]}}$/";
+        return preg_match($strPreg, $value)?true:false;
+    }
+
+    /**
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function date($value,$arrValue){
+
         return true;
     }
 
     /**
-     * $arrCondition = Array(
-     *      id'=>Array('int','lt',10),
-     * 小于10
-     * @param $data
+     * 验证的字段的大小必须在给定的 min 和 max 之间。数字、数组。
      * @param $value
+     * @param $arrValue
      * @return bool
      */
-    private function lt($data,$value){
-        return $data < $value;
+    private function between($value,$arrValue){
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 0;
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = 0;
+        if (is_array($value)){
+            $value = count($value);
+        }elseif (!is_numeric($value)){
+            return false;
+        }
+        return $arrValue[0] <= $value && $value <= $arrValue[1];
     }
 
     /**
-     * $arrCondition = Array(
-     *      id'=>Array('int','elt',10),
-     * 小于等于$value
-     * @param $data
+     * 验证的字段必须能够被转换为布尔值
      * @param $value
      * @return bool
      */
-    private function elt($data,$value){
-        return $data <= $value;
+    private function boolean($value){
+        return (bool)$value;
     }
 
     /**
-     * $arrCondition = Array(
-     *      id'=>Array('int','length',10),
-     * 长度等于$value
-     * @param $data
+     * 验证是否为身份证号码
      * @param $value
      * @return bool
      */
-    private function length($data,$value){
-        return mb_strlen($data,'utf-8') > $value;
+    private function idcard($value){
+        if (mb_strlen($value, 'UTF-8') != 18){
+            return false;
+        }
+        $wi = [7,9,10,5,8,4,2,1,6,3,7,9,10,5,8,4,2];//加权因子
+        $ai = ['1','0','X','9','8','7','6','5','4','3','2'];//校验码串
+        $sigma = 0;//按顺序循环处理前17位
+        for($i = 0;$i < 17;$i++) {
+            $b = (int)$value{$i};//提取前17位的其中一位，并将变量类型转为实数
+            $w = $wi[$i];//提取相应的加权因子
+            $sigma += $b * $w;//把从身份证号码中提取的一位数字和加权因子相乘，并累加
+        }
+        $sNumber = $sigma % 11;//计算序号
+        if($value{17} == $ai[$sNumber]){//按照序号从校验码串中提取相应的字符。
+            return true;
+        }else{
+            return false;
+        }
     }
+
+    /**
+     * 验证是否中文
+     * @param $value
+     * @return bool
+     */
+    private function chinese($value){
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
+        $strPreg = "/^[^\x80-\xff]{{$arrValue[0]},{$arrValue[1]}}$/";
+        return preg_match($strPreg, $value)?false:true;
+    }
+
+    /**
+     * 验证手机浏览器
+     * @param $value
+     * @return bool
+     */
+    private function mobile_agent($value){
+        return preg_match('/(Phone|iPad|iPod|Android|ios|SymbianOS|mobile)/i',$value)?true:false;
+    }
+
+    /**
+     * 判断是否在一个范围内
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function in($value,$arrValue){
+        !is_array($arrValue) && $arrValue = [$arrValue];
+        return in_array($value,$arrValue)?true:false;
+    }
+
+    /**
+     * 验证是否IP地址
+     * @param $value
+     * @param $arrValue
+     * FILTER_FLAG_IPV4 - 要求值是合法的 IPv4 IP（比如 255.255.255.255）
+     * FILTER_FLAG_IPV6 - 要求值是合法的 IPv6 IP（比如	2001:0db8:85a3:08d3:1319:8a2e:0370:7334）
+     * FILTER_FLAG_NO_PRIV_RANGE - 要求值是 RFC 指定的私域 IP （比如 192.168.0.1）
+     * FILTER_FLAG_NO_RES_RANGE - 要求值不在保留的 IP 范围内。该标志接受 IPV4 和 IPV6 值。
+     * @return bool
+     */
+    private function ip($value,$arrValue){
+        !isset($arrValue[0]) && $arrValue[0] = null;
+        if ($arrValue[0] == 'v4'){
+            $arrValue[0] = FILTER_FLAG_IPV4;
+        }elseif ($arrValue[0] == 'v6'){
+            $arrValue[0] = FILTER_FLAG_IPV6;
+        }elseif ($arrValue[0] == 'private'){
+            $arrValue[0] = FILTER_FLAG_NO_PRIV_RANGE;
+        }
+        return filter_var($value, FILTER_VALIDATE_IP, $arrValue[0])?true:false;
+    }
+
+    /**
+     * 验证是否URL地址
+     * @param $value
+     * @param $arrValue
+     * FILTER_FLAG_SCHEME_REQUIRED - 要求 URL 是 RFC 兼容 URL。（比如：http://example）
+     * FILTER_FLAG_HOST_REQUIRED - 要求 URL 包含主机名（http://www.example.com）
+     * FILTER_FLAG_PATH_REQUIRED - 要求 URL 在主机名后存在路径（比如：eg.com/example1/）
+     * FILTER_FLAG_QUERY_REQUIRED - 要求 URL 存在查询字符串（比如："eg.php?age=37"）
+     * @return bool
+     */
+    private function url($value,$arrValue){
+        !isset($arrValue[0]) && $arrValue[0] = null;
+        if ($arrValue[0] == 'host'){
+            $arrValue[0] = FILTER_FLAG_HOST_REQUIRED;
+        }elseif ($arrValue[0] == 'path'){
+            $arrValue[0] = FILTER_FLAG_PATH_REQUIRED;
+        }elseif ($arrValue[0] == 'query'){
+            $arrValue[0] = FILTER_FLAG_QUERY_REQUIRED;
+        }
+        return filter_var($value, FILTER_VALIDATE_URL, $arrValue[0])?true:false;
+    }
+
+    /**
+     * 是否大于
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function gt($value,$arrValue){
+        $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
+        return $value > $arrValue[0];
+    }
+
+    /**
+     * 是否大于等于
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function egt($value,$arrValue){
+        $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
+        return $value >= $arrValue[0];
+    }
+
+    /**
+     * 是否小于
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function lt($value,$arrValue){
+        $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
+        return $value < $arrValue[0];
+    }
+
+    /**
+     * 是否小于等于
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function elt($value,$arrValue){
+        $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
+        return $value <= $arrValue[0];
+    }
+
+    /**
+     * 是否不等于
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function neq($value,$arrValue){
+        $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
+        return $value != $arrValue[0];
+    }
+
+    /**
+     * 是否不恒等
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function nheq($value,$arrValue){
+        $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
+        return $value !== $arrValue[0];
+    }
+
+    /**
+     * 是否等于
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function eq($value,$arrValue){
+        $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
+        return $value == $arrValue[0];
+    }
+
+    /**
+     * 是否恒等
+     * @param $value
+     * @param $arrValue
+     * @return bool
+     */
+    private function heq($value,$arrValue){
+        $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
+        return $value === $arrValue[0];
+    }
+
 }

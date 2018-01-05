@@ -1,7 +1,14 @@
 <?php
 $arrValue = null;
 $strMsg = 'as%2fsf';
-$a = call_user_func('sprintf',$strMsg,$arrValue);
+$aa = 'bb() && cc()';
+$a = function()use ($aa){return $aa() ;};
 
+function bb(){
+    return 'bb';
+}
+function cc($value){
+    return (boolval($value));
+}
 
-print_r($a);
+var_dump('aa' > 2);

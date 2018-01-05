@@ -298,4 +298,11 @@ abstract class Controller{
     public function Dal(){
         return \Spt::getInstance('Spartan\\Lib\\Dal');
     }
+
+    /**
+     * @return null|\Spartan\Lib\Validation;
+     */
+    public function Validation(){
+        return \Spt::getInstance('Spartan\\Lib\\Validation');
+    }
 }
