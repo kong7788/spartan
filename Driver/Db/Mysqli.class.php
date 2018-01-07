@@ -189,6 +189,57 @@ class Mysqli implements Db {
     }
 
     /**
+     * 取得数据表的字段信息及注释
+     * [类型,长度,小数,主键,默认值,注释]
+     * @param $intLinkID
+     * @param $tableName
+     * @return array
+     */
+    public function getFullFields($intLinkID,$tableName) {
+        $result = mysqli_query($intLinkID,'SHOW FULL FIELDS FROM '.$tableName);
+        $arrInfo = Array();
+        if($result) {
+            foreach ($result as $key => $val) {
+                if (stripos($val['Type'],'(')){
+                    list($typeName,$typeLong) = explode('(',$val['Type']);
+                    list($typeLong,$typeSign) = explode(')',$typeLong);
+                    $typeSign = trim($typeSign);
+                }else{
+                    $typeName = $val['Type'];
+                    $typeLong = '0,0';
+                    $typeSign = $val['Collation'];
+                }
+                !$typeSign && $typeSign = $val['Collation'];
+                stripos($typeLong,',')===false && $typeLong .= ',0';
+                list($typeLong1,$typeLong2) = explode(',',$typeLong);
+                $arrInfo[$val['Field']] = Array(
+                    $typeName,//字段类型
+                    $typeLong1,//长度
+                    !$typeLong2?0:$typeLong2,//小数
+                    trim($typeSign),//字段格式
+                    (strtolower($val['Key']) == 'pri')?'true':'false',//是否主键
+                    (strtolower($val['Extra']) == 'auto_increment')?'true':'false',//是否自动增值
+                    (strtolower($val['Null'] == 'no')?'true':'false'),
+                    is_null($val['Default'])?'null':(stripos($typeSign,'general')?'Empty String':$val['Default']),
+                    $val['Comment'],
+                );
+            }
+        }
+        return $arrInfo;
+    }
+
+    /**
+     * @param $intLinkID
+     * @param $tableName
+     * @return array
+     */
+    public function showCreateTable($intLinkID,$tableName){
+        $result = mysqli_query($intLinkID,'SHOW CREATE TABLE '.$tableName);
+        $result = $result->fetch_array();
+        return Array($result[0],$result[1]);
+    }
+
+    /**
      * 取得数据库的表信息
      * @access public
      */

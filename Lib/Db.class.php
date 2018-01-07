@@ -363,6 +363,26 @@ class Db{
     }
 
     /**
+     * 得到表的所有字段及注释
+     * @param $table
+     * @return array
+     */
+    public function getFullFields($table){
+        !$this->linkID && $this->initConnect(true);
+        return $this->clsDriverInstance->getFullFields($this->linkID,$this->arrConfig['PREFIX'].$table);
+    }
+
+    /**
+     * 得到表的建表记录
+     * @param $table
+     * @return array
+     */
+    public function showCreateTable($table){
+        !$this->linkID && $this->initConnect(true);
+        return $this->clsDriverInstance->showCreateTable($this->linkID,$this->arrConfig['PREFIX'].$table);
+    }
+
+    /**
      * 获取最近一次查询的sql语句
      * @access public
      * @return string
