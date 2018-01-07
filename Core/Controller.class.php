@@ -292,17 +292,32 @@ abstract class Controller{
         }
     }
 
+
     /**
-     * @return null|\Spartan\Lib\Dal;
+     * @param  $arrData array;
+     * @return mixed|\Spartan\Lib\Validation;
      */
-    public function Dal(){
-        return \Spt::getInstance('Spartan\\Lib\\Dal');
+    public function valid($arrData = []){
+        /** @var \Spartan\Lib\Validation $clsValidation */
+        $clsValidation = \Spt::getInstance('Spartan\\Lib\\Validation');
+        return $arrData?$clsValidation->authorize($arrData):$clsValidation;
     }
 
     /**
-     * @return null|\Spartan\Lib\Validation;
+     * @param $strDalName string;
+     * @return mixed|\Spartan\Lib\Dal;
      */
-    public function Validation(){
+    public function dal($strDalName){
+        /** @var \Spartan\Lib\Dal $clsDal */
+        $clsDal = \Spt::getInstance('Spartan\\Lib\\Dal');
+        return $arrData?$clsDal->setData($arrData):$clsDal;
+    }
+
+
+    /**
+     * @return null|Logic\*;
+     */
+    public function logic(){
         return \Spt::getInstance('Spartan\\Lib\\Validation');
     }
 }

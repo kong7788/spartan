@@ -4,17 +4,19 @@ namespace Spartan\Lib;
 defined('APP_PATH') OR die('404 Not Found');
 
 /**
- * 数据Data Access Layer
- * Class Dal
+ * 数据Data Validation Layer
+ * Class Validation
  * @package Spartan\Lib
  */
 class Validation {
-    private $arrConfig = [];
+    private $arrConfig = [];//全局配置变量
     /** @var null|Request  */
-    private $clsRequest = null;//
-    private $arrFun = [];//验证规则
+    private $clsRequest = null;//数据寄存类，$_POst,$_GET,$_PUT....
+    private $arrRequest = [];//暂时寄存值
+    private $arrFun = [];//自定义的验证规则
     private $arrError = [];//错误信息
-    private $arrResult = [];//函数比较的结果值
+    private $arrResult = [];//被验证的变量结果值
+    private $arrValue = [];//被验证的变量值
 
     /**
      * @param array $arrConfig
@@ -26,21 +28,22 @@ class Validation {
 
     /**
      * Validation constructor.
+     * reset=重置整个类，bail=是否中断验证
      * @param array $_arrConfig
      */
     public function __construct($_arrConfig = []){
         $this->clsRequest = Request::instance($_arrConfig);
-        isset($_arrConfig['reset']) && $_arrConfig['reset'] && $this->reset();
-        unset($_arrConfig['reset']);
-        !isset($_arrConfig['bail']) && $_arrConfig['bail'] = true;
-        $this->arrConfig = $_arrConfig;
+        $this->reset($_arrConfig);
     }
 
     /**
      * 重新初始化类
+     * @param array $_arrConfig
      */
-    public function reset(){
-        unset($this->arrConfig,$this->arrFun,$this->arrError,$this->arrResult);
+    public function reset($_arrConfig = []){
+        $this->arrConfig = $this->arrRequest = $this->arrFun = $this->arrError = $this->arrResult = $this->arrValue = [];
+        !isset($_arrConfig['bail']) && $_arrConfig['bail'] = true;
+        $this->arrConfig = $_arrConfig;
     }
 
     /**
@@ -50,61 +53,87 @@ class Validation {
     public function setConfig($name,$value){
         $this->arrConfig[$name] = $value;
     }
+
+    /**
+     * @param $name string
+     * @return array|string
+     */
+    public function getConfig($name = ''){
+        return !$name?$this->arrConfig:(isset($this->arrConfig[$name])?$this->arrConfig[$name]:'');
+    }
+
     /**
      * 返回所有的已验证结果
      * @param $name string
-     * @return array
+     * @return array|string
      */
-    public function allResult($name){
-        return isset($this->arrResult[$name])?$this->arrResult[$name]:$this->arrResult;
+    public function getResult($name = ''){
+        return !$name?$this->arrResult:(isset($this->arrResult[$name])?$this->arrResult[$name]:'');
+    }
+
+    /**
+     * 返回所有的验证的变量值
+     * @param $name string
+     * @return array|string
+     */
+    public function getValue($name = ''){
+        return !$name?$this->arrValue:(isset($this->arrValue[$name])?$this->arrValue[$name]:'');
     }
 
     /**
      * 返回所有错误
      * @return array
      */
-    public function allError(){
+    public function allErrors(){
         return $this->arrError;
     }
 
     /**
-     * 最后的错误
+     * 即得带返回格式的错误信息
+     * @param $type int|string
      * @return array
      */
-    public function error(){
-        return $this->arrError[0];
+    public function getError($type = 0){
+        $arrError = array_slice($this->arrError,0,1);
+        !$arrError && $arrError[0] = Array('验证成功',1,'','');
+        list($info,$status,$field,$value) = $arrError[0];
+        $arrData = !$type?Array($field,$value):$this->arrError;
+        return Array('info'=>$info,'status'=>$status,'data'=>$arrData);
     }
 
     /**
-     * 设置一个变量值
-     * @param $name
-     * @param string $value
+     * 设置一个数据寄存变量
+     * Array('name'=>'lang');
+     * @param $arrData array
      * @return $this
      */
-    public function setValue($name,$value=''){
-        $this->clsRequest->setValue($name,$value);
+    public function setRequest($arrData){
+        $this->arrRequest = array_merge($this->arrResult,$arrData);
         return $this;
     }
 
     /**
-     * 添加自定义规则
-     * @param string $name //规则名称
-     * @param Function|null //处理函数
+     * 添加自定义处理函数
+     * Array('foo'=>function(){return false;});
+     * @param $arrData array]
      * @return $this
      */
-    public function setRules($name,$function=null){
-        if (is_array($name)){
-            $this->arrFun = array_merge($this->arrFun,$name);
-        }else{
-            $this->arrFun[$name] = $function;
-        }
+    public function setFun($arrData){
+        $this->arrFun = array_merge($this->arrFun,$arrData);
         return $this;
     }
 
+    /**
+     * 返回变量信息和错误信息
+     * @return array
+     */
+    public function result(){
+        return Array($this->getValue(),$this->getError());
+    }
     /**
      * 开始验证
      * @param $_arrRule array
-     * @return boolean
+     * @return $this
      * 'name'=>Array('required','length',[2,10],'请输入登录'),
      * 'email'=>Array('without','email',['phone'],'请输入邮箱'),
      * 'phone'=>Array('without','phone',['email'],'请输入手机'),
@@ -114,14 +143,15 @@ class Validation {
      */
     public function authorize($_arrRule){
         foreach($_arrRule as $k => $v) {
-            $strValue = $this->clsRequest->input($k);
+            $strValue = $this->getRequestValue($k);
+            if (count($v) != 4){continue;}//只有4个元素的数组才是正常的判断规则。
             list($strCondition,$strFun,$arrValue,$strMsg) = $v;
-            $arrValue = $this->parseValue($arrValue);//解析变量
-            $arrMsg = Array(call_user_func('sprintf',$strMsg,$arrValue),$k,$strValue);
-            !$strCondition && $strCondition = 'null';
-            if (!in_array($strCondition,['required','without','null'])){
-                $this->arrError[] = Array("变量{$k}中规则{$strCondition}未支持。",$k,$strValue);
-                return false;
+            $arrValue = $this->parseValue($arrValue);//解析传递变量中的变量
+            $arrMsg = Array(call_user_func('sprintf',$strMsg,$arrValue),0,$k,$strValue);//构造一个支持sprintf的提示语
+            !$strCondition && $strCondition = 'null';//默认允许为空
+            if (!in_array($strCondition,['required','without','null'])){//只支付三种关键字
+                $this->arrError[] = Array("变量{$k}中规则{$strCondition}未支持。",0,$k,$strValue);
+                return $this;
             }
             //如果为必填写即跳过
             if (is_null($strValue) || $strValue == ''){
@@ -148,16 +178,18 @@ class Validation {
                         }
                         $bolAndResult = false;
                         //检查该函数的值
-                        if (method_exists($this,$fun)){
-                            $bolAndResult = $this->$fun($strValue,isset($arrValue[$fun])?$arrValue[$fun]:$arrValue);
-                        }elseif (isset($this->arrFun[$fun]) && $this->arrFun[$fun]){
+                        if (isset($this->arrFun[$fun]) && $this->arrFun[$fun] && is_callable($this->arrFun[$fun])){//优先使用设置的寄存函数
                             $bolAndResult = $this->arrFun[$fun]($strValue,isset($arrValue[$fun])?$arrValue[$fun]:$arrValue);
+                        }elseif (method_exists($this,$fun)){
+                            $bolAndResult = $this->$fun($strValue,isset($arrValue[$fun])?$arrValue[$fun]:$arrValue);
                         }
                         $strLeft && $bolAndResult = !$bolAndResult;
                         //对结果算进行判断
                         if (!$bolAndResult){
                             $bolOrResult = false;
                             break;//这里是and判断，如果有一个为false，就整个都为false
+                        }else{
+                            $bolOrResult = true;
                         }
                     }
                     if ($bolOrResult){
@@ -169,20 +201,32 @@ class Validation {
                 if ($strCondition == 'without'){
                     if (!$this->arrResult[$k] && isset($this->arrResult[$arrValue[0]]) && !$this->arrResult[$arrValue[0]]){
                         $this->arrError[] = $arrMsg;
-                        return false;
+                        return $this;
                     }
                 }else{
                     if (!$this->arrResult[$k]){//验证没有通过
                         $this->arrError[] = $arrMsg;
-                        return false;
+                        return $this;
                     }
                 }
                 if (isset($this->arrConfig['bail']) && $this->arrConfig['bail'] == true && $this->arrError){
-                    return false;
+                    return $this;
                 }
+                $this->arrValue[$k] = $strValue;
             }
         }
-        return true;
+        return $this;
+    }
+
+    /**
+     * 获取按定名称的变量值
+     * @param $key
+     * @return mixed|null
+     */
+    public function getRequestValue($key){
+        $strValue = isset($this->arrRequest[$key])?$this->arrRequest[$key]:null;//优先临时变量
+        !$strValue && $strValue = $this->clsRequest->input($key);//从请求变量
+        return $strValue;
     }
 
     /**
@@ -196,13 +240,13 @@ class Validation {
             if (is_array($value)){
                 foreach ($value as &$item){
                     if (substr($item,0,1) === '$'){
-                        $item = $this->clsRequest->input(substr($item,1));
+                        $item = $this->getRequestValue(substr($item,1));
                     }
                 }
                 unset($item);
             }else{
                 if (substr($value,0,1) === '$'){
-                    $value = $this->clsRequest->input(substr($value,1));
+                    $value = $this->getRequestValue(substr($value,1));
                 }
             }
         }
@@ -216,7 +260,7 @@ class Validation {
      * @param $arrValue array
      * @return bool,是否符合，false为不符合
      */
-    private function length($value,$arrValue){
+    public function length($value,$arrValue){
         $intLength = mb_strlen($value,'utf-8');
         if ($intLength < $arrValue[0]){
             return false;
@@ -232,7 +276,7 @@ class Validation {
      * @param $value
      * @return bool
      */
-    private function email($value){
+    public function email($value){
         return filter_var($value, FILTER_VALIDATE_EMAIL)?true:false;
     }
 
@@ -241,7 +285,7 @@ class Validation {
      * @param $value
      * @return bool
      */
-    private function phone($value){
+    public function phone($value){
         $strPreg = "/^13[0-9]{1}[0-9]{8}$|15[0-9]{1}[0-9]{8}$|18[0-9]{1}[0-9]{8}$/";
         return preg_match($strPreg, $value)?true:false;
     }
@@ -252,7 +296,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function same($value,$arrValue){
+    public function same($value,$arrValue){
         return $value == $arrValue[0];
     }
 
@@ -261,7 +305,7 @@ class Validation {
      * @param $value
      * @return bool
      */
-    private function accepted($value){
+    public function accepted($value){
         $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
         return $value == null?false:$value;
     }
@@ -272,7 +316,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function num($value,$arrValue){
+    public function num($value,$arrValue){
         (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
         (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
         $strPreg = "/^[0-9]{{$arrValue[0]},{$arrValue[1]}}$/";
@@ -285,7 +329,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function alpha($value,$arrValue){
+    public function alpha($value,$arrValue){
         (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
         (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
         $strPreg = "/^[A-Za-z]{{$arrValue[0]},{$arrValue[1]}}$/";
@@ -298,7 +342,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function alpha_dash($value,$arrValue){
+    public function alpha_dash($value,$arrValue){
         (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
         (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
         $strPreg = "/^[A-Za-z-_]{{$arrValue[0]},{$arrValue[1]}}$/";
@@ -311,7 +355,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function alpha_num($value,$arrValue){
+    public function alpha_num($value,$arrValue){
         (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
         (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
         $strPreg = "/^[A-Za-z0-9]{{$arrValue[0]},{$arrValue[1]}}$/";
@@ -324,7 +368,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function alpha_num_dash($value,$arrValue){
+    public function alpha_num_dash($value,$arrValue){
         (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
         (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
         $strPreg = "/^[A-Za-z0-9-_]{{$arrValue[0]},{$arrValue[1]}}$/";
@@ -336,8 +380,13 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function date($value,$arrValue){
-
+    public function date($value,$arrValue){
+        $intUnixTime = strtotime($value);
+        if (!$intUnixTime){
+            return false;
+        }
+        (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = '';
+        (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
         return true;
     }
 
@@ -347,7 +396,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function between($value,$arrValue){
+    public function between($value,$arrValue){
         (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 0;
         (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = 0;
         if (is_array($value)){
@@ -363,7 +412,7 @@ class Validation {
      * @param $value
      * @return bool
      */
-    private function boolean($value){
+    public function boolean($value){
         return (bool)$value;
     }
 
@@ -372,7 +421,7 @@ class Validation {
      * @param $value
      * @return bool
      */
-    private function idcard($value){
+    public function idcard($value){
         if (mb_strlen($value, 'UTF-8') != 18){
             return false;
         }
@@ -397,7 +446,7 @@ class Validation {
      * @param $value
      * @return bool
      */
-    private function chinese($value){
+    public function chinese($value){
         (!isset($arrValue[0]) && $arrValue[0]) && $arrValue[0] = 1;
         (!isset($arrValue[1]) && $arrValue[1]) && $arrValue[1] = '';
         $strPreg = "/^[^\x80-\xff]{{$arrValue[0]},{$arrValue[1]}}$/";
@@ -409,7 +458,7 @@ class Validation {
      * @param $value
      * @return bool
      */
-    private function mobile_agent($value){
+    public function mobile_agent($value){
         return preg_match('/(Phone|iPad|iPod|Android|ios|SymbianOS|mobile)/i',$value)?true:false;
     }
 
@@ -419,7 +468,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function in($value,$arrValue){
+    public function in($value,$arrValue){
         !is_array($arrValue) && $arrValue = [$arrValue];
         return in_array($value,$arrValue)?true:false;
     }
@@ -434,7 +483,7 @@ class Validation {
      * FILTER_FLAG_NO_RES_RANGE - 要求值不在保留的 IP 范围内。该标志接受 IPV4 和 IPV6 值。
      * @return bool
      */
-    private function ip($value,$arrValue){
+    public function ip($value,$arrValue){
         !isset($arrValue[0]) && $arrValue[0] = null;
         if ($arrValue[0] == 'v4'){
             $arrValue[0] = FILTER_FLAG_IPV4;
@@ -456,7 +505,7 @@ class Validation {
      * FILTER_FLAG_QUERY_REQUIRED - 要求 URL 存在查询字符串（比如："eg.php?age=37"）
      * @return bool
      */
-    private function url($value,$arrValue){
+    public function url($value,$arrValue){
         !isset($arrValue[0]) && $arrValue[0] = null;
         if ($arrValue[0] == 'host'){
             $arrValue[0] = FILTER_FLAG_HOST_REQUIRED;
@@ -474,7 +523,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function gt($value,$arrValue){
+    public function gt($value,$arrValue){
         $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
         return $value > $arrValue[0];
     }
@@ -485,7 +534,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function egt($value,$arrValue){
+    public function egt($value,$arrValue){
         $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
         return $value >= $arrValue[0];
     }
@@ -496,7 +545,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function lt($value,$arrValue){
+    public function lt($value,$arrValue){
         $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
         return $value < $arrValue[0];
     }
@@ -507,7 +556,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function elt($value,$arrValue){
+    public function elt($value,$arrValue){
         $arrValue[0] = intval(isset($arrValue[0])?$arrValue[0]:0);
         return $value <= $arrValue[0];
     }
@@ -518,7 +567,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function neq($value,$arrValue){
+    public function neq($value,$arrValue){
         $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
         return $value != $arrValue[0];
     }
@@ -529,7 +578,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function nheq($value,$arrValue){
+    public function nheq($value,$arrValue){
         $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
         return $value !== $arrValue[0];
     }
@@ -540,7 +589,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function eq($value,$arrValue){
+    public function eq($value,$arrValue){
         $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
         return $value == $arrValue[0];
     }
@@ -551,7 +600,7 @@ class Validation {
      * @param $arrValue
      * @return bool
      */
-    private function heq($value,$arrValue){
+    public function heq($value,$arrValue){
         $arrValue[0] = isset($arrValue[0])?$arrValue[0]:'';
         return $value === $arrValue[0];
     }
