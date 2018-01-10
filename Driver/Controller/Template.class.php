@@ -598,8 +598,10 @@ class Template{
         foreach ($array as $templateName){
             if (stripos($templateName,'@')>0){
                 $templateName = $templatePath.'/'.str_replace('@','/',$templateName);
-            }elseif(stripos($templateName,'/')===false){
+            }elseif(stripos($templateName,'/')===false){//不知应用场景
                 $templateName = substr($this->templateFile,0,strrpos($this->templateFile,'/')+1).$templateName;
+            }else{
+                $templateName = $templatePath . '/' . $templateName;
             }
             if(empty($templateName)){continue;}//获取模板文件内容
             $parseStr .= file_get_contents($templateName);
